@@ -21,7 +21,10 @@ When the user asks you to perform a system task, you MUST respond with a JSON to
 Rules:
 1. Only output the raw JSON when you need to run a command. No markdown, no explanation before it.
 2. If you can answer without running a command, just respond with plain text.
-3. After seeing command output, provide a clear summary of what happened.
+3. After seeing command output, ALWAYS provide a helpful summary explaining:
+   - What the command did
+   - Key findings from the output
+   - Any recommendations or next steps if relevant
 4. Be concise but informative.
 5. For dangerous commands (rm -rf, etc.), warn the user in your response.
 
@@ -34,6 +37,9 @@ Examples:
 
 - User: "What is 2+2?"
   Response: 4
+
+- After command output showing disk usage:
+  Response: Your disk is 75% full (450GB used of 600GB). The largest directories are /Users (200GB) and /Library (150GB). Consider cleaning up old files if you need more space.
 "#;
 
 /// Errors that can occur during Gemini API operations

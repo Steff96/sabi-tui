@@ -18,6 +18,92 @@ use crate::state::AppState;
 /// Spinner frames for loading animation
 const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
+/// Parse a line with basic markdown and return styled spans
+fn parse_markdown_line(line: &str, base_style: Style) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let line = line.to_string();
+    
+    // Handle bullet points
+    let (prefix, content) = if line.trim_start().starts_with("* ") || line.trim_start().starts_with("- ") {
+        let indent = line.len() - line.trim_start().len();
+        let bullet = format!("{}• ", " ".repeat(indent));
+        (Some(Span::styled(bullet, base_style.fg(Color::Cyan))), 
+         line.trim_start()[2..].to_string())
+    } else {
+        (None, line)
+    };
+    
+    if let Some(p) = prefix {
+        spans.push(p);
+    }
+    
+    // Parse **bold** and *italic*
+    let mut chars = content.chars().peekable();
+    let mut current = String::new();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '*' {
+            if chars.peek() == Some(&'*') {
+                // **bold**
+                chars.next();
+                if !current.is_empty() {
+                    spans.push(Span::styled(current.clone(), base_style));
+                    current.clear();
+                }
+                let mut bold_text = String::new();
+                while let Some(c) = chars.next() {
+                    if c == '*' && chars.peek() == Some(&'*') {
+                        chars.next();
+                        break;
+                    }
+                    bold_text.push(c);
+                }
+                spans.push(Span::styled(bold_text, base_style.fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+            } else {
+                // *italic* - just show as cyan
+                if !current.is_empty() {
+                    spans.push(Span::styled(current.clone(), base_style));
+                    current.clear();
+                }
+                let mut italic_text = String::new();
+                while let Some(c) = chars.next() {
+                    if c == '*' {
+                        break;
+                    }
+                    italic_text.push(c);
+                }
+                spans.push(Span::styled(italic_text, base_style.fg(Color::Cyan)));
+            }
+        } else if ch == '`' {
+            // `code`
+            if !current.is_empty() {
+                spans.push(Span::styled(current.clone(), base_style));
+                current.clear();
+            }
+            let mut code_text = String::new();
+            while let Some(c) = chars.next() {
+                if c == '`' {
+                    break;
+                }
+                code_text.push(c);
+            }
+            spans.push(Span::styled(code_text, Style::default().fg(Color::Green)));
+        } else {
+            current.push(ch);
+        }
+    }
+    
+    if !current.is_empty() {
+        spans.push(Span::styled(current, base_style));
+    }
+    
+    if spans.is_empty() {
+        spans.push(Span::styled("", base_style));
+    }
+    
+    Line::from(spans)
+}
+
 /// Minimum terminal dimensions for proper rendering
 pub const MIN_WIDTH: u16 = 40;
 pub const MIN_HEIGHT: u16 = 10;
@@ -87,31 +173,53 @@ fn render_size_warning(frame: &mut Frame, area: Rect) {
 fn render_chat_history(frame: &mut Frame, app: &App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
     
+    // Track approximate wrapped line count
+    let content_width = area.width.saturating_sub(4) as usize; // borders + indent
+    let mut estimated_lines: usize = 0;
+    
     for message in &app.messages {
         let (prefix, style) = get_message_style(&message.role);
         
         // Add prefix line
         lines.push(Line::from(Span::styled(prefix, style)));
+        estimated_lines += 1;
         
-        // Add content lines with indentation
+        // Add content lines with indentation and markdown parsing for AI messages
+        let base_style = style.remove_modifier(Modifier::BOLD);
         for content_line in message.content.lines() {
-            lines.push(Line::from(Span::styled(
-                format!("  {}", content_line),
-                style.remove_modifier(Modifier::BOLD),
-            )));
+            let indented = format!("  {}", content_line);
+            
+            if message.role == MessageRole::Model {
+                // Parse markdown for AI responses
+                let parsed = parse_markdown_line(&indented, base_style);
+                lines.push(parsed);
+            } else {
+                lines.push(Line::from(Span::styled(indented.clone(), base_style)));
+            }
+            
+            // Estimate wrapped lines (add 1 for the line itself, plus wrapped portions)
+            if content_width > 0 {
+                estimated_lines += 1 + (content_line.len() / content_width);
+            } else {
+                estimated_lines += 1;
+            }
         }
         
         // Add empty line between messages
         lines.push(Line::from(""));
+        estimated_lines += 1;
     }
     
     let text = Text::from(lines);
+    let visible_height = area.height.saturating_sub(2) as usize;
     
-    // Calculate scroll position
-    let visible_height = area.height.saturating_sub(2) as usize; // Account for borders
-    let total_lines = text.lines.len();
-    let scroll = if total_lines > visible_height {
-        (total_lines - visible_height).saturating_sub(app.scroll_offset as usize)
+    // Calculate scroll position - add buffer to ensure we see the bottom
+    let scroll = if app.scroll_offset == 0 && estimated_lines > visible_height {
+        // When at bottom (offset=0), scroll to show latest content with extra buffer
+        (estimated_lines.saturating_sub(visible_height) + 5) as u16
+    } else if estimated_lines > visible_height {
+        let max_scroll = estimated_lines.saturating_sub(visible_height);
+        max_scroll.saturating_sub(app.scroll_offset as usize) as u16
     } else {
         0
     };
@@ -124,7 +232,7 @@ fn render_chat_history(frame: &mut Frame, app: &App, area: Rect) {
                 .border_style(Style::default().fg(Color::Cyan)),
         )
         .wrap(Wrap { trim: false })
-        .scroll((scroll as u16, 0));
+        .scroll((scroll, 0));
     
     frame.render_widget(chat, area);
 }
@@ -213,8 +321,10 @@ fn render_command_box(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Render command execution output
 fn render_execution_output(frame: &mut Frame, app: &App, area: Rect) {
+    let spinner_char = SPINNER_FRAMES[app.spinner_frame % SPINNER_FRAMES.len()];
+    
     let output = if app.execution_output.is_empty() {
-        "Executing command...".to_string()
+        format!("{} Executing command...", spinner_char)
     } else {
         app.execution_output.clone()
     };
