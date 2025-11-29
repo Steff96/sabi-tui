@@ -372,4 +372,129 @@ mod tests {
         assert_eq!(app.messages.len(), 1);
         assert_eq!(app.messages[0].content, "list files");
     }
+
+    // Strategy to generate arbitrary error messages
+    fn arb_error_message() -> impl Strategy<Value = String> {
+        "[a-zA-Z0-9 ]{1,100}".prop_map(|s| s)
+    }
+
+    // **Feature: agent-rs, Property 5: API Error Recovery**
+    // *For any* API error during Thinking state, the application SHALL transition
+    // back to Input state and set an error message.
+    // **Validates: Requirements 2.4**
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        #[test]
+        fn prop_api_error_recovery_from_thinking(error_msg in arb_error_message()) {
+            let mut app = test_app();
+            
+            // First, get to Thinking state by submitting valid input
+            app.input_textarea.insert_str("test query");
+            app.submit_input();
+            
+            // Verify we're in Thinking state
+            prop_assert_eq!(app.state, AppState::Thinking);
+            
+            // Simulate API error by setting error and transitioning
+            app.set_error(&error_msg);
+            let transitioned = app.transition(StateEvent::ApiError);
+            
+            // Property: transition should succeed
+            prop_assert!(transitioned, "API error transition should succeed from Thinking state");
+            
+            // Property: state should be Input after API error
+            prop_assert_eq!(
+                app.state,
+                AppState::Input,
+                "State should transition to Input after API error"
+            );
+            
+            // Property: error message should be set
+            prop_assert!(
+                app.error_message.is_some(),
+                "Error message should be set after API error"
+            );
+            
+            // Property: error message should match what we set
+            prop_assert_eq!(
+                app.error_message.as_ref().unwrap(),
+                &error_msg,
+                "Error message should match the set error"
+            );
+        }
+
+        #[test]
+        fn prop_api_error_recovery_from_finalizing(error_msg in arb_error_message()) {
+            let mut app = test_app();
+            
+            // Manually set state to Finalizing (simulating post-command execution)
+            app.state = AppState::Finalizing;
+            
+            // Simulate API error
+            app.set_error(&error_msg);
+            let transitioned = app.transition(StateEvent::ApiError);
+            
+            // Property: transition should succeed
+            prop_assert!(transitioned, "API error transition should succeed from Finalizing state");
+            
+            // Property: state should be Input after API error
+            prop_assert_eq!(
+                app.state,
+                AppState::Input,
+                "State should transition to Input after API error in Finalizing"
+            );
+            
+            // Property: error message should be set
+            prop_assert!(
+                app.error_message.is_some(),
+                "Error message should be set after API error"
+            );
+        }
+
+        #[test]
+        fn prop_api_error_preserves_message_history(
+            input in non_empty_string(),
+            error_msg in arb_error_message()
+        ) {
+            let mut app = test_app();
+            
+            // Submit input to get to Thinking state
+            app.input_textarea.insert_str(&input);
+            app.submit_input();
+            
+            // Record message count after submission
+            let message_count = app.messages.len();
+            
+            // Simulate API error
+            app.set_error(&error_msg);
+            app.transition(StateEvent::ApiError);
+            
+            // Property: message history should be preserved (not cleared)
+            prop_assert_eq!(
+                app.messages.len(),
+                message_count,
+                "Message history should be preserved after API error"
+            );
+        }
+    }
+
+    #[test]
+    fn test_api_error_recovery() {
+        let mut app = test_app();
+        
+        // Get to Thinking state
+        app.input_textarea.insert_str("test");
+        app.submit_input();
+        assert_eq!(app.state, AppState::Thinking);
+        
+        // Simulate API error
+        app.set_error("Network error");
+        app.transition(StateEvent::ApiError);
+        
+        // Should be back in Input state with error
+        assert_eq!(app.state, AppState::Input);
+        assert!(app.error_message.is_some());
+        assert_eq!(app.error_message.unwrap(), "Network error");
+    }
 }
