@@ -141,6 +141,34 @@ impl Config {
         Ok(config_dir.join("agent-rs").join("config.toml"))
     }
 
+    /// Save configuration to file
+    pub fn save(&self) -> Result<(), ConfigError> {
+        let config_path = Self::config_path()?;
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let content = format!(
+            r#"api_key = "{}"
+model = "{}"
+max_history_messages = {}
+max_output_bytes = {}
+max_output_lines = {}
+"#,
+            self.api_key,
+            self.model,
+            self.max_history_messages,
+            self.max_output_bytes,
+            self.max_output_lines
+        );
+        std::fs::write(&config_path, content)?;
+        Ok(())
+    }
+
+    /// Check if API key is configured
+    pub fn has_api_key(&self) -> bool {
+        !self.api_key.is_empty()
+    }
+
     /// Apply environment variable overrides
     fn apply_env_overrides(&mut self) {
         if let Ok(api_key) = std::env::var("AGENT_RS_API_KEY") {
