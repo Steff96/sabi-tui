@@ -32,7 +32,6 @@ Download from [Releases](https://github.com/n4ar/sabi-tui/releases):
 | macOS (Intel) | `sabi-macos-x86_64` |
 | Linux (x64) | `sabi-linux-x86_64` |
 | Linux (ARM64) | `sabi-linux-aarch64` |
-| Windows | `sabi-windows-x86_64.exe` |
 
 ```bash
 # Example for macOS Apple Silicon

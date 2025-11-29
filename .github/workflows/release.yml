@@ -16,18 +16,19 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: sabi-linux-x86_64
+            cross: false
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact: sabi-linux-aarch64
+            cross: true
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact: sabi-macos-x86_64
+            cross: false
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: sabi-macos-aarch64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: sabi-windows-x86_64.exe
+            cross: false
 
     runs-on: ${{ matrix.os }}
 
@@ -39,22 +40,20 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (Linux ARM)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: Build
+      - name: Build with cross
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build with cargo
+        if: "!matrix.cross"
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary (Unix)
-        if: runner.os != 'Windows'
+      - name: Rename binary
         run: mv target/${{ matrix.target }}/release/sabi ${{ matrix.artifact }}
-
-      - name: Rename binary (Windows)
-        if: runner.os == 'Windows'
-        run: mv target/${{ matrix.target }}/release/sabi.exe ${{ matrix.artifact }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -78,5 +77,4 @@ jobs:
             sabi-linux-aarch64/sabi-linux-aarch64
             sabi-macos-x86_64/sabi-macos-x86_64
             sabi-macos-aarch64/sabi-macos-aarch64
-            sabi-windows-x86_64.exe/sabi-windows-x86_64.exe
           generate_release_notes: true
