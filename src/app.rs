@@ -2,6 +2,7 @@
 //!
 //! Contains the App struct that holds all application state.
 
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tui_textarea::TextArea;
 
 use crate::config::Config;
@@ -169,6 +170,148 @@ impl<'a> App<'a> {
         const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         SPINNER[self.spinner_frame % SPINNER.len()]
     }
+
+    /// Handle a keyboard event based on the current state
+    ///
+    /// Returns an InputResult indicating what action should be taken.
+    pub fn handle_key_event(&mut self, key: KeyEvent) -> InputResult {
+        // Check for Ctrl+C to quit from any state
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.should_quit = true;
+            return InputResult::Quit;
+        }
+
+        match self.state {
+            AppState::Input => self.handle_input_state(key),
+            AppState::Thinking => self.handle_thinking_state(key),
+            AppState::ReviewAction => self.handle_review_action_state(key),
+            AppState::Executing => self.handle_executing_state(key),
+            AppState::Finalizing => self.handle_finalizing_state(key),
+            AppState::Done => self.handle_done_state(key),
+        }
+    }
+
+    /// Handle keyboard events in Input state
+    fn handle_input_state(&mut self, key: KeyEvent) -> InputResult {
+        match key.code {
+            KeyCode::Enter => {
+                if self.submit_input() {
+                    InputResult::SubmitQuery
+                } else {
+                    InputResult::Ignored
+                }
+            }
+            KeyCode::Esc => {
+                self.should_quit = true;
+                self.transition(StateEvent::Escape);
+                InputResult::Quit
+            }
+            // Pass other keys to the textarea
+            _ => {
+                self.input_textarea.input(key);
+                InputResult::Handled
+            }
+        }
+    }
+
+    /// Handle keyboard events in Thinking state (input blocked)
+    fn handle_thinking_state(&mut self, key: KeyEvent) -> InputResult {
+        // Only allow Escape for emergency quit in async states
+        if key.code == KeyCode::Esc {
+            self.should_quit = true;
+            InputResult::Quit
+        } else {
+            // Input is blocked during Thinking state
+            InputResult::Blocked
+        }
+    }
+
+    /// Handle keyboard events in ReviewAction state
+    fn handle_review_action_state(&mut self, key: KeyEvent) -> InputResult {
+        match key.code {
+            KeyCode::Enter => {
+                // Confirm command execution
+                let command = self.get_action_text();
+                if !command.is_empty() {
+                    self.current_command = Some(command);
+                    self.transition(StateEvent::ConfirmCommand);
+                    InputResult::ExecuteCommand
+                } else {
+                    InputResult::Ignored
+                }
+            }
+            KeyCode::Esc => {
+                // Cancel command and return to input
+                self.clear_action();
+                self.transition(StateEvent::CancelCommand);
+                InputResult::CancelCommand
+            }
+            // Pass other keys to the action textarea for editing
+            _ => {
+                self.action_textarea.input(key);
+                InputResult::Handled
+            }
+        }
+    }
+
+    /// Handle keyboard events in Executing state (input blocked)
+    fn handle_executing_state(&mut self, key: KeyEvent) -> InputResult {
+        // Only allow Escape for emergency quit
+        if key.code == KeyCode::Esc {
+            self.should_quit = true;
+            InputResult::Quit
+        } else {
+            InputResult::Blocked
+        }
+    }
+
+    /// Handle keyboard events in Finalizing state (input blocked)
+    fn handle_finalizing_state(&mut self, key: KeyEvent) -> InputResult {
+        // Only allow Escape for emergency quit
+        if key.code == KeyCode::Esc {
+            self.should_quit = true;
+            InputResult::Quit
+        } else {
+            InputResult::Blocked
+        }
+    }
+
+    /// Handle keyboard events in Done state
+    fn handle_done_state(&mut self, key: KeyEvent) -> InputResult {
+        match key.code {
+            KeyCode::Enter => {
+                // Continue to new input
+                self.transition(StateEvent::Continue);
+                InputResult::Continue
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.should_quit = true;
+                InputResult::Quit
+            }
+            _ => InputResult::Ignored,
+        }
+    }
+}
+
+/// Result of handling an input event
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputResult {
+    /// Input was handled (e.g., character typed)
+    Handled,
+    /// Input was ignored (e.g., empty submit)
+    Ignored,
+    /// Input was blocked (async state)
+    Blocked,
+    /// User submitted a query, should send to AI
+    SubmitQuery,
+    /// User confirmed command execution
+    ExecuteCommand,
+    /// User cancelled command
+    CancelCommand,
+    /// User wants to continue from Done state
+    Continue,
+    /// User wants to quit
+    Quit,
 }
 
 
@@ -496,5 +639,465 @@ mod tests {
         assert_eq!(app.state, AppState::Input);
         assert!(app.error_message.is_some());
         assert_eq!(app.error_message.unwrap(), "Network error");
+    }
+
+    // **Feature: agent-rs, Property 8: ReviewAction State Transitions**
+    // *For any* application in ReviewAction state, pressing Enter SHALL transition to
+    // Executing state, and pressing Escape SHALL transition to Input state with
+    // action_textarea cleared.
+    // **Validates: Requirements 3.3, 3.4**
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        #[test]
+        fn prop_review_action_enter_transitions_to_executing(command in non_empty_string()) {
+            let mut app = test_app();
+            
+            // Set up app in ReviewAction state with a command
+            app.state = AppState::ReviewAction;
+            app.action_textarea = TextArea::default();
+            app.action_textarea.insert_str(&command);
+            
+            // Verify we're in ReviewAction state
+            prop_assert_eq!(app.state, AppState::ReviewAction);
+            
+            // Simulate pressing Enter
+            let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+            let result = app.handle_key_event(key);
+            
+            // Property: result should be ExecuteCommand
+            prop_assert_eq!(
+                result,
+                InputResult::ExecuteCommand,
+                "Enter in ReviewAction should return ExecuteCommand"
+            );
+            
+            // Property: state should transition to Executing
+            prop_assert_eq!(
+                app.state,
+                AppState::Executing,
+                "State should transition to Executing after Enter in ReviewAction"
+            );
+            
+            // Property: current_command should be set
+            prop_assert!(
+                app.current_command.is_some(),
+                "current_command should be set after confirming"
+            );
+            
+            // Property: current_command should match the action text
+            prop_assert_eq!(
+                app.current_command.as_ref().unwrap().trim(),
+                command.trim(),
+                "current_command should match the action textarea content"
+            );
+        }
+
+        #[test]
+        fn prop_review_action_escape_transitions_to_input(command in non_empty_string()) {
+            let mut app = test_app();
+            
+            // Set up app in ReviewAction state with a command
+            app.state = AppState::ReviewAction;
+            app.action_textarea = TextArea::default();
+            app.action_textarea.insert_str(&command);
+            
+            // Verify we're in ReviewAction state with content
+            prop_assert_eq!(app.state, AppState::ReviewAction);
+            prop_assert!(!app.get_action_text().is_empty());
+            
+            // Simulate pressing Escape
+            let key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+            let result = app.handle_key_event(key);
+            
+            // Property: result should be CancelCommand
+            prop_assert_eq!(
+                result,
+                InputResult::CancelCommand,
+                "Escape in ReviewAction should return CancelCommand"
+            );
+            
+            // Property: state should transition to Input
+            prop_assert_eq!(
+                app.state,
+                AppState::Input,
+                "State should transition to Input after Escape in ReviewAction"
+            );
+            
+            // Property: action_textarea should be cleared
+            prop_assert!(
+                app.get_action_text().is_empty(),
+                "action_textarea should be cleared after Escape in ReviewAction"
+            );
+            
+            // Property: dangerous_command_detected should be reset
+            prop_assert!(
+                !app.dangerous_command_detected,
+                "dangerous_command_detected should be reset after cancel"
+            );
+        }
+
+        #[test]
+        fn prop_review_action_empty_command_ignored(_dummy in 0..1) {
+            let mut app = test_app();
+            
+            // Set up app in ReviewAction state with empty command
+            app.state = AppState::ReviewAction;
+            app.action_textarea = TextArea::default();
+            
+            // Verify action is empty
+            prop_assert!(app.get_action_text().is_empty());
+            
+            // Simulate pressing Enter
+            let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+            let result = app.handle_key_event(key);
+            
+            // Property: result should be Ignored (can't execute empty command)
+            prop_assert_eq!(
+                result,
+                InputResult::Ignored,
+                "Enter with empty command should be ignored"
+            );
+            
+            // Property: state should remain ReviewAction
+            prop_assert_eq!(
+                app.state,
+                AppState::ReviewAction,
+                "State should remain ReviewAction when command is empty"
+            );
+        }
+
+        #[test]
+        fn prop_review_action_allows_editing(
+            initial_command in non_empty_string(),
+            additional_char in "[a-zA-Z0-9]"
+        ) {
+            let mut app = test_app();
+            
+            // Set up app in ReviewAction state with a command
+            app.state = AppState::ReviewAction;
+            app.action_textarea = TextArea::default();
+            app.action_textarea.insert_str(&initial_command);
+            
+            let initial_len = app.get_action_text().len();
+            
+            // Simulate typing a character
+            let ch = additional_char.chars().next().unwrap();
+            let key = KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE);
+            let result = app.handle_key_event(key);
+            
+            // Property: result should be Handled
+            prop_assert_eq!(
+                result,
+                InputResult::Handled,
+                "Character input in ReviewAction should be handled"
+            );
+            
+            // Property: state should remain ReviewAction
+            prop_assert_eq!(
+                app.state,
+                AppState::ReviewAction,
+                "State should remain ReviewAction during editing"
+            );
+            
+            // Property: action text should have grown
+            prop_assert!(
+                app.get_action_text().len() > initial_len,
+                "Action text should grow after character input"
+            );
+        }
+    }
+
+    #[test]
+    fn test_review_action_enter_executes() {
+        let mut app = test_app();
+        
+        // Set up in ReviewAction state
+        app.state = AppState::ReviewAction;
+        app.action_textarea.insert_str("ls -la");
+        
+        // Press Enter
+        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let result = app.handle_key_event(key);
+        
+        assert_eq!(result, InputResult::ExecuteCommand);
+        assert_eq!(app.state, AppState::Executing);
+        assert_eq!(app.current_command, Some("ls -la".to_string()));
+    }
+
+    #[test]
+    fn test_review_action_escape_cancels() {
+        let mut app = test_app();
+        
+        // Set up in ReviewAction state
+        app.state = AppState::ReviewAction;
+        app.action_textarea.insert_str("rm -rf /");
+        app.dangerous_command_detected = true;
+        
+        // Press Escape
+        let key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        let result = app.handle_key_event(key);
+        
+        assert_eq!(result, InputResult::CancelCommand);
+        assert_eq!(app.state, AppState::Input);
+        assert!(app.get_action_text().is_empty());
+        assert!(!app.dangerous_command_detected);
+    }
+
+    // Strategy to generate async (blocking) states
+    fn arb_async_state() -> impl Strategy<Value = AppState> {
+        prop_oneof![
+            Just(AppState::Thinking),
+            Just(AppState::Finalizing),
+            Just(AppState::Executing),
+        ]
+    }
+
+    // Strategy to generate non-escape key events
+    fn arb_non_escape_key() -> impl Strategy<Value = KeyEvent> {
+        prop_oneof![
+            // Regular characters
+            "[a-zA-Z0-9]".prop_map(|s| {
+                let ch = s.chars().next().unwrap();
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
+            }),
+            // Enter key
+            Just(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            // Arrow keys
+            Just(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+            Just(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+            Just(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+            Just(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            // Backspace and Delete
+            Just(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+            Just(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)),
+            // Tab
+            Just(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+        ]
+    }
+
+    // **Feature: agent-rs, Property 15: Input Blocking in Async States**
+    // *For any* application in Thinking or Finalizing state, keyboard input events
+    // (except Escape for emergency quit) SHALL NOT modify input_textarea or
+    // action_textarea content.
+    // **Validates: Requirements 7.3**
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        #[test]
+        fn prop_input_blocked_in_async_states(
+            state in arb_async_state(),
+            key in arb_non_escape_key(),
+            initial_input in "[a-zA-Z0-9]{0,20}",
+            initial_action in "[a-zA-Z0-9]{0,20}",
+        ) {
+            let mut app = test_app();
+            
+            // Set up initial content in textareas
+            app.input_textarea = TextArea::default();
+            app.input_textarea.insert_str(&initial_input);
+            app.action_textarea = TextArea::default();
+            app.action_textarea.insert_str(&initial_action);
+            
+            // Set the async state
+            app.state = state;
+            
+            // Record initial content
+            let input_before = app.get_input_text();
+            let action_before = app.get_action_text();
+            
+            // Handle the key event
+            let result = app.handle_key_event(key);
+            
+            // Property: result should be Blocked
+            prop_assert_eq!(
+                result,
+                InputResult::Blocked,
+                "Non-escape keys should be blocked in {:?} state",
+                state
+            );
+            
+            // Property: input_textarea content should be unchanged
+            prop_assert_eq!(
+                app.get_input_text(),
+                input_before,
+                "input_textarea should not change in {:?} state",
+                state
+            );
+            
+            // Property: action_textarea content should be unchanged
+            prop_assert_eq!(
+                app.get_action_text(),
+                action_before,
+                "action_textarea should not change in {:?} state",
+                state
+            );
+        }
+
+        #[test]
+        fn prop_escape_allowed_in_async_states(state in arb_async_state()) {
+            let mut app = test_app();
+            
+            // Set the async state
+            app.state = state;
+            
+            // Simulate pressing Escape
+            let key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+            let result = app.handle_key_event(key);
+            
+            // Property: result should be Quit (emergency exit)
+            prop_assert_eq!(
+                result,
+                InputResult::Quit,
+                "Escape should allow quit in {:?} state",
+                state
+            );
+            
+            // Property: should_quit flag should be set
+            prop_assert!(
+                app.should_quit,
+                "should_quit should be true after Escape in {:?} state",
+                state
+            );
+        }
+
+        #[test]
+        fn prop_ctrl_c_allowed_in_async_states(state in arb_async_state()) {
+            let mut app = test_app();
+            
+            // Set the async state
+            app.state = state;
+            
+            // Simulate pressing Ctrl+C
+            let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+            let result = app.handle_key_event(key);
+            
+            // Property: result should be Quit
+            prop_assert_eq!(
+                result,
+                InputResult::Quit,
+                "Ctrl+C should allow quit in {:?} state",
+                state
+            );
+            
+            // Property: should_quit flag should be set
+            prop_assert!(
+                app.should_quit,
+                "should_quit should be true after Ctrl+C in {:?} state",
+                state
+            );
+        }
+
+        #[test]
+        fn prop_thinking_state_blocks_input(key in arb_non_escape_key()) {
+            let mut app = test_app();
+            
+            // Get to Thinking state legitimately
+            app.input_textarea.insert_str("test query");
+            app.submit_input();
+            
+            prop_assert_eq!(app.state, AppState::Thinking);
+            
+            // Record initial state
+            let input_before = app.get_input_text();
+            let action_before = app.get_action_text();
+            
+            // Try to input
+            let result = app.handle_key_event(key);
+            
+            // Property: should be blocked
+            prop_assert_eq!(result, InputResult::Blocked);
+            
+            // Property: content unchanged
+            prop_assert_eq!(app.get_input_text(), input_before);
+            prop_assert_eq!(app.get_action_text(), action_before);
+        }
+
+        #[test]
+        fn prop_finalizing_state_blocks_input(key in arb_non_escape_key()) {
+            let mut app = test_app();
+            
+            // Set to Finalizing state
+            app.state = AppState::Finalizing;
+            
+            // Add some content to verify it's not modified
+            app.input_textarea.insert_str("previous input");
+            app.action_textarea.insert_str("previous action");
+            
+            let input_before = app.get_input_text();
+            let action_before = app.get_action_text();
+            
+            // Try to input
+            let result = app.handle_key_event(key);
+            
+            // Property: should be blocked
+            prop_assert_eq!(result, InputResult::Blocked);
+            
+            // Property: content unchanged
+            prop_assert_eq!(app.get_input_text(), input_before);
+            prop_assert_eq!(app.get_action_text(), action_before);
+        }
+    }
+
+    #[test]
+    fn test_thinking_blocks_character_input() {
+        let mut app = test_app();
+        
+        // Get to Thinking state
+        app.input_textarea.insert_str("test");
+        app.submit_input();
+        assert_eq!(app.state, AppState::Thinking);
+        
+        // Try to type a character
+        let key = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
+        let result = app.handle_key_event(key);
+        
+        assert_eq!(result, InputResult::Blocked);
+        assert!(app.get_input_text().is_empty()); // Was cleared on submit
+    }
+
+    #[test]
+    fn test_thinking_allows_escape() {
+        let mut app = test_app();
+        
+        // Get to Thinking state
+        app.input_textarea.insert_str("test");
+        app.submit_input();
+        assert_eq!(app.state, AppState::Thinking);
+        
+        // Press Escape
+        let key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        let result = app.handle_key_event(key);
+        
+        assert_eq!(result, InputResult::Quit);
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn test_executing_blocks_input() {
+        let mut app = test_app();
+        
+        // Set to Executing state
+        app.state = AppState::Executing;
+        
+        // Try to type
+        let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        let result = app.handle_key_event(key);
+        
+        assert_eq!(result, InputResult::Blocked);
+    }
+
+    #[test]
+    fn test_finalizing_blocks_input() {
+        let mut app = test_app();
+        
+        // Set to Finalizing state
+        app.state = AppState::Finalizing;
+        
+        // Try to press Enter
+        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let result = app.handle_key_event(key);
+        
+        assert_eq!(result, InputResult::Blocked);
     }
 }
