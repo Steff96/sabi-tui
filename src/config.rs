@@ -171,17 +171,11 @@ impl Config {
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use std::env;
     use tempfile::TempDir;
+    use std::sync::Mutex;
 
-    // Helper functions to safely set/remove env vars in tests
-    unsafe fn set_env(key: &str, value: &str) {
-        unsafe { env::set_var(key, value) };
-    }
-
-    unsafe fn remove_env(key: &str) {
-        unsafe { env::remove_var(key) };
-    }
+    // Global mutex to serialize tests that modify environment variables
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     // **Feature: agent-rs, Property 22: Config Loading Precedence**
     // *For any* configuration value, environment variables SHALL take precedence
@@ -200,6 +194,9 @@ mod tests {
             env_model in "[a-zA-Z0-9_-]{5,15}",
             env_max_history in 1usize..100,
         ) {
+            // Serialize access to environment variables
+            let _guard = ENV_MUTEX.lock().unwrap();
+
             // Create a temp config file
             let temp_dir = TempDir::new().unwrap();
             let config_path = temp_dir.path().join("config.toml");
@@ -216,9 +213,9 @@ max_history_messages = {}
 
             // Set environment variables (unsafe in Rust 2024)
             unsafe {
-                set_env("AGENT_RS_API_KEY", &env_api_key);
-                set_env("AGENT_RS_MODEL", &env_model);
-                set_env("AGENT_RS_MAX_HISTORY", &env_max_history.to_string());
+                std::env::set_var("AGENT_RS_API_KEY", &env_api_key);
+                std::env::set_var("AGENT_RS_MODEL", &env_model);
+                std::env::set_var("AGENT_RS_MAX_HISTORY", &env_max_history.to_string());
             }
 
             // Load config
@@ -231,9 +228,9 @@ max_history_messages = {}
 
             // Clean up env vars
             unsafe {
-                remove_env("AGENT_RS_API_KEY");
-                remove_env("AGENT_RS_MODEL");
-                remove_env("AGENT_RS_MAX_HISTORY");
+                std::env::remove_var("AGENT_RS_API_KEY");
+                std::env::remove_var("AGENT_RS_MODEL");
+                std::env::remove_var("AGENT_RS_MAX_HISTORY");
             }
         }
 
@@ -243,11 +240,14 @@ max_history_messages = {}
             file_model in "[a-zA-Z0-9_-]{5,15}",
             file_max_history in 1usize..100,
         ) {
+            // Serialize access to environment variables
+            let _guard = ENV_MUTEX.lock().unwrap();
+
             // Ensure no env vars are set
             unsafe {
-                remove_env("AGENT_RS_API_KEY");
-                remove_env("AGENT_RS_MODEL");
-                remove_env("AGENT_RS_MAX_HISTORY");
+                std::env::remove_var("AGENT_RS_API_KEY");
+                std::env::remove_var("AGENT_RS_MODEL");
+                std::env::remove_var("AGENT_RS_MAX_HISTORY");
             }
 
             // Create a temp config file
@@ -277,13 +277,16 @@ max_history_messages = {}
         fn prop_defaults_used_when_no_file_or_env(
             _dummy in 0..1, // Just to make it a property test
         ) {
+            // Serialize access to environment variables
+            let _guard = ENV_MUTEX.lock().unwrap();
+
             // Ensure no env vars are set
             unsafe {
-                remove_env("AGENT_RS_API_KEY");
-                remove_env("AGENT_RS_MODEL");
-                remove_env("AGENT_RS_MAX_HISTORY");
-                remove_env("AGENT_RS_MAX_OUTPUT_BYTES");
-                remove_env("AGENT_RS_MAX_OUTPUT_LINES");
+                std::env::remove_var("AGENT_RS_API_KEY");
+                std::env::remove_var("AGENT_RS_MODEL");
+                std::env::remove_var("AGENT_RS_MAX_HISTORY");
+                std::env::remove_var("AGENT_RS_MAX_OUTPUT_BYTES");
+                std::env::remove_var("AGENT_RS_MAX_OUTPUT_LINES");
             }
 
             // Load config with no file
