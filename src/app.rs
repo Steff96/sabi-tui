@@ -191,6 +191,16 @@ impl<'a> App<'a> {
         }
     }
 
+    /// Scroll chat history up
+    pub fn scroll_up(&mut self) {
+        self.scroll_offset = self.scroll_offset.saturating_add(1);
+    }
+
+    /// Scroll chat history down
+    pub fn scroll_down(&mut self) {
+        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+    }
+
     /// Handle keyboard events in Input state
     fn handle_input_state(&mut self, key: KeyEvent) -> InputResult {
         match key.code {
@@ -205,6 +215,14 @@ impl<'a> App<'a> {
                 self.should_quit = true;
                 self.transition(StateEvent::Escape);
                 InputResult::Quit
+            }
+            KeyCode::Up => {
+                self.scroll_up();
+                InputResult::Handled
+            }
+            KeyCode::Down => {
+                self.scroll_down();
+                InputResult::Handled
             }
             // Pass other keys to the textarea
             _ => {
