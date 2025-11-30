@@ -30,12 +30,29 @@ pub enum ConfigError {
     TomlParse(#[from] toml::de::Error),
 }
 
+/// AI Provider type
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    #[default]
+    Gemini,
+    OpenAI,
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Config {
-    /// Gemini API key
+    /// AI provider (gemini or openai)
+    #[serde(default)]
+    pub provider: Provider,
+
+    /// API key
     #[serde(default)]
     pub api_key: String,
+
+    /// Base URL for OpenAI-compatible APIs
+    #[serde(default)]
+    pub base_url: Option<String>,
 
     /// Model name
     #[serde(default = "default_model")]
@@ -91,7 +108,9 @@ fn default_dangerous_patterns() -> Vec<String> {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            provider: Provider::default(),
             api_key: String::new(),
+            base_url: None,
             model: default_model(),
             max_history_messages: default_max_history(),
             max_output_bytes: default_max_output_bytes(),
@@ -139,11 +158,10 @@ impl Config {
         Ok(config)
     }
 
-    /// Get the config file path
+    /// Get the config file path (~/.sabi/config.toml)
     fn config_path() -> Result<PathBuf, ConfigError> {
-        let config_dir = dirs::config_dir()
-            .ok_or(ConfigError::NotFound)?;
-        Ok(config_dir.join("sabi").join("config.toml"))
+        let home = dirs::home_dir().ok_or(ConfigError::NotFound)?;
+        Ok(home.join(".sabi").join("config.toml"))
     }
 
     /// Save configuration to file
@@ -152,19 +170,36 @@ impl Config {
         if let Some(parent) = config_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content = format!(
-            r#"api_key = "{}"
+        
+        let provider_str = match self.provider {
+            Provider::Gemini => "gemini",
+            Provider::OpenAI => "openai",
+        };
+        
+        let mut content = format!(
+            r#"provider = "{}"
+api_key = "{}"
 model = "{}"
-max_history_messages = {}
+"#,
+            provider_str,
+            self.api_key,
+            self.model,
+        );
+        
+        if let Some(ref url) = self.base_url {
+            content.push_str(&format!("base_url = \"{}\"\n", url));
+        }
+        
+        content.push_str(&format!(
+            r#"max_history_messages = {}
 max_output_bytes = {}
 max_output_lines = {}
 "#,
-            self.api_key,
-            self.model,
             self.max_history_messages,
             self.max_output_bytes,
             self.max_output_lines
-        );
+        ));
+        
         std::fs::write(&config_path, content)?;
         Ok(())
     }

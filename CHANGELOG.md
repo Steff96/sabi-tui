@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.1.5] - 2025-11-30
+
+### Added
+- 🤖 **Multi-provider support** - OpenAI, Ollama, Groq, Together AI via OpenAI-compatible API
+- 🚀 **Onboarding wizard** - First-run setup to choose provider and configure API key
+- 🔄 **Model switching** - `/model` command to list and switch models
+- ⌨️ **Tab autocomplete** - Press Tab to autocomplete slash commands
+- 🛡️ **Enhanced security** - 2-step confirmation for dangerous commands
+- ⛔ **Unknown tool blocking** - Blocks AI-generated tools not in allowed list
+- 🚨 **Dangerous path detection** - Blocks operations on `~`, `/Users`, `/etc`, etc.
+
+### Changed
+- Config path unified to `~/.sabi/` (config.toml + sessions/)
+- Dangerous commands now require typing "I understand the risks" to execute
+
+### Security
+- LLM cannot bypass safety checks by creating fake tools
+- Destructive operations require explicit user confirmation
+- Path-based restrictions prevent accidental system damage
+
+## [0.1.4] - 2025-11-30
+
+### Added
+- 🖼️ **Image analysis** - `/image <path> [prompt]` command and `Ctrl+O` to paste from clipboard
+- 📊 **Usage stats** - `/usage` command shows session token estimates and context window usage
+- 📤 **Export chat** - `/export [filename.md]` exports conversation history to markdown
+
 ## [0.1.3] - 2025-11-30
 
 ### Added
@@ -15,9 +42,8 @@
 ### Changed
 - Renamed project from `agent-rs` to `Sabi-TUI`
 - Binary name changed to `sabi`
-- Config path: `~/.config/sabi/config.toml`
+- Config path: `~/.sabi/`
 - Environment variable: `SABI_API_KEY`
-- Session storage: `~/Library/Application Support/sabi/sessions/` (macOS)
 - Middle pane now auto-sizes based on content
 - Switched to `rustls` for cross-compilation support
 

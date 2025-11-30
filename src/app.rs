@@ -20,6 +20,7 @@ pub const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/switch", "Switch to session: /switch <id>"),
     ("/delete", "Delete session: /delete <id>"),
     ("/image", "Attach image: /image <path> [prompt]"),
+    ("/model", "List/switch model: /model [name]"),
     ("/usage", "Show session token usage stats"),
     ("/export", "Export chat: /export [filename.md]"),
     ("/help", "Show available commands"),
@@ -109,6 +110,9 @@ pub struct App<'a> {
     /// Flag indicating dangerous command detected
     pub dangerous_command_detected: bool,
 
+    /// Confirmation step for dangerous commands (0 = not started, 1 = first confirm, 2 = ready)
+    pub danger_confirm_step: u8,
+
     /// Application configuration
     pub config: Config,
 
@@ -153,6 +157,7 @@ impl<'a> App<'a> {
             should_quit: false,
             scroll_offset: 0,
             dangerous_command_detected: false,
+            danger_confirm_step: 0,
             config,
             python_available,
             running_task: None,
@@ -390,6 +395,7 @@ impl<'a> App<'a> {
                      /switch <id> - Switch to session\n\
                      /delete <id> - Delete session\n\
                      /image <path> [prompt] - Analyze image\n\
+                     /model [name] - List or switch model\n\
                      /usage - Show session stats\n\
                      /export [file.md] - Export chat to markdown\n\
                      /clear - Clear chat history\n\
@@ -476,6 +482,9 @@ impl<'a> App<'a> {
                 }
                 SubmitResult::Handled
             }
+            "/model" => {
+                SubmitResult::FetchModels(arg.map(String::from))
+            }
             "/quit" | "/exit" | "/q" => {
                 self.should_quit = true;
                 SubmitResult::Quit
@@ -507,9 +516,9 @@ impl<'a> App<'a> {
         Ok(())
     }
 
-    /// Get sessions directory
+    /// Get sessions directory (~/.sabi/sessions/)
     pub fn sessions_dir() -> Option<std::path::PathBuf> {
-        dirs::data_dir().map(|d| d.join("sabi").join("sessions"))
+        dirs::home_dir().map(|d| d.join(".sabi").join("sessions"))
     }
 
     /// Get path for a specific session
@@ -653,8 +662,30 @@ impl<'a> App<'a> {
                 match self.submit_input() {
                     SubmitResult::Query => InputResult::SubmitQuery,
                     SubmitResult::Quit => InputResult::Quit,
+                    SubmitResult::FetchModels(model) => InputResult::FetchModels(model),
                     _ => InputResult::Handled,
                 }
+            }
+            KeyCode::Tab => {
+                // Autocomplete slash commands
+                let input = self.get_input_text();
+                if input.starts_with('/') {
+                    let suggestions = self.get_suggestions();
+                    if suggestions.len() == 1 {
+                        // Single match - complete it
+                        self.input_textarea = TextArea::default();
+                        self.input_textarea.insert_str(suggestions[0].0);
+                        self.input_textarea.insert_char(' ');
+                    } else if suggestions.len() > 1 {
+                        // Multiple matches - show them
+                        let list = suggestions.iter()
+                            .map(|(cmd, desc)| format!("{} - {}", cmd, desc))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        self.add_message(Message::system(&format!("Commands:\n{}", list)));
+                    }
+                }
+                InputResult::Handled
             }
             KeyCode::Esc => {
                 self.should_quit = true;
@@ -707,7 +738,54 @@ impl<'a> App<'a> {
     fn handle_review_action_state(&mut self, key: KeyEvent) -> InputResult {
         match key.code {
             KeyCode::Enter => {
-                // Confirm command execution
+                // Dangerous commands require 2-step confirmation
+                if self.dangerous_command_detected {
+                    match self.danger_confirm_step {
+                        0 => {
+                            self.danger_confirm_step = 1;
+                            // Save the command before confirmation flow
+                            self.current_command = Some(self.get_action_text());
+                            self.add_message(Message::system(
+                                "⚠️ DANGEROUS COMMAND DETECTED!\n\n\
+                                 This command could cause irreversible damage.\n\
+                                 Press Enter again to proceed to final confirmation."
+                            ));
+                            return InputResult::Ignored;
+                        }
+                        1 => {
+                            self.danger_confirm_step = 2;
+                            self.add_message(Message::system(
+                                "🛑 FINAL CONFIRMATION REQUIRED\n\n\
+                                 Type exactly: I understand the risks\n\n\
+                                 Then press Enter to execute, or Esc to cancel."
+                            ));
+                            // Clear action textarea for user to type confirmation
+                            self.action_textarea = TextArea::default();
+                            return InputResult::Ignored;
+                        }
+                        2 => {
+                            let typed = self.get_action_text().to_lowercase();
+                            if typed.trim() == "i understand the risks" {
+                                // Restore the original command and execute
+                                if let Some(ref cmd) = self.current_command.clone() {
+                                    self.set_action_text(cmd);
+                                }
+                                self.danger_confirm_step = 0;
+                                self.transition(StateEvent::ConfirmCommand);
+                                return InputResult::ExecuteCommand;
+                            } else {
+                                self.add_message(Message::system(
+                                    "❌ Confirmation text doesn't match.\n\
+                                     Type exactly: I understand the risks"
+                                ));
+                                return InputResult::Ignored;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                
+                // Normal command execution
                 let command = self.get_action_text();
                 if !command.is_empty() {
                     self.current_command = Some(command);
@@ -720,12 +798,18 @@ impl<'a> App<'a> {
             KeyCode::Esc => {
                 // Cancel command and return to input
                 self.clear_action();
+                self.danger_confirm_step = 0;
+                self.current_command = None;
                 self.transition(StateEvent::CancelCommand);
                 InputResult::CancelCommand
             }
             // Pass other keys to the action textarea for editing
             _ => {
                 self.action_textarea.input(key);
+                // Reset confirmation if user edits the command (except in step 2)
+                if self.danger_confirm_step == 1 {
+                    self.danger_confirm_step = 0;
+                }
                 InputResult::Handled
             }
         }
@@ -790,6 +874,8 @@ pub enum InputResult {
     Continue,
     /// User wants to quit
     Quit,
+    /// Fetch models from API (with optional model name to switch to)
+    FetchModels(Option<String>),
 }
 
 /// Result of submitting input
@@ -803,6 +889,8 @@ pub enum SubmitResult {
     Handled,
     /// Quit requested
     Quit,
+    /// Fetch models from API (with optional model name to switch to)
+    FetchModels(Option<String>),
 }
 
 

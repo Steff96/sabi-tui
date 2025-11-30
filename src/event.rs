@@ -8,8 +8,8 @@ use std::time::Duration;
 use crossterm::event::{self, Event as CrosstermEvent, KeyEvent};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
+use crate::ai_client::AIError;
 use crate::executor::CommandResult;
-use crate::gemini::GeminiError;
 
 /// Events that can occur in the application
 #[derive(Debug)]
@@ -21,11 +21,13 @@ pub enum Event {
     /// Terminal resize event
     Resize(u16, u16),
     /// API response received (success or error)
-    ApiResponse(Result<String, GeminiError>),
+    ApiResponse(Result<String, AIError>),
     /// Command execution completed
     CommandComplete(CommandResult),
     /// Command was cancelled
     CommandCancelled,
+    /// Models list response (models, optional model to switch to)
+    ModelsResponse(Result<Vec<String>, AIError>, Option<String>),
 }
 
 /// Handles async event collection and distribution

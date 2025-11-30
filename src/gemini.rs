@@ -251,6 +251,53 @@ impl GeminiClient {
     pub fn max_history_messages(&self) -> usize {
         self.max_history_messages
     }
+
+    /// Set the model to use
+    pub fn set_model(&mut self, model: String) {
+        self.model = model;
+    }
+
+    /// Get current model name
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// List available Gemini models
+    pub async fn list_models(&self) -> Result<Vec<String>, GeminiError> {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models?key={}",
+            self.api_key
+        );
+
+        let response = self.client.get(&url).send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let message = response.text().await.unwrap_or_default();
+            return Err(GeminiError::ApiError { status, message });
+        }
+
+        let body: serde_json::Value = response.json().await?;
+        let models = body["models"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter(|m| {
+                        // Only include models that support generateContent
+                        m["supportedGenerationMethods"]
+                            .as_array()
+                            .map(|methods| methods.iter().any(|v| v == "generateContent"))
+                            .unwrap_or(false)
+                    })
+                    .filter_map(|m| m["name"].as_str())
+                    .map(|s| s.strip_prefix("models/").unwrap_or(s).to_string())
+                    .filter(|s| s.starts_with("gemini"))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(models)
+    }
 }
 
 

@@ -6,20 +6,18 @@ A terminal-based AI agent implementing the ReAct (Reasoning + Acting) pattern fo
 
 ## Features
 
-- 🧠 **Gemini AI powered** - Natural language to shell command translation
+- 🤖 **Multi-provider AI** - Gemini, OpenAI, Ollama, Groq, Together AI
 - 💻 **Terminal access** - Execute commands with safety checks
 - 🐍 **Python executor** - Run Python code for calculations (auto-detected)
 - 🖼️ **Image analysis** - Paste images from clipboard or file for AI analysis
 - 🔒 **Safe mode** - Preview commands without execution
 - 💾 **Multi-session** - Save and switch between conversation sessions
-- ⚠️ **Dangerous command detection** - Visual warnings for risky commands
+- 🛡️ **2-step confirmation** - Dangerous commands require explicit confirmation
 - 🚫 **Interactive command blocking** - Prevents hanging on vim, ssh, etc.
 
 ## Installation
 
 ### Quick Install (Recommended)
-
-Downloads pre-built binary automatically:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/n4ar/sabi-tui/main/setup.sh | bash
@@ -36,13 +34,6 @@ Download from [Releases](https://github.com/n4ar/sabi-tui/releases):
 | Linux (x64) | `sabi-linux-x86_64` |
 | Linux (ARM64) | `sabi-linux-aarch64` |
 
-```bash
-# Example for macOS Apple Silicon
-curl -L https://github.com/n4ar/sabi-tui/releases/latest/download/sabi-macos-aarch64 -o sabi
-chmod +x sabi
-mv sabi ~/.local/bin/
-```
-
 ### Build from Source
 
 ```bash
@@ -52,130 +43,136 @@ cargo build --release
 cp target/release/sabi ~/.local/bin/
 ```
 
-## Requirements
+## Quick Start
 
-- Gemini API key ([Get one here](https://aistudio.google.com/apikey))
+Run `sabi` and follow the onboarding wizard:
+
+```
+🚀 Welcome to Sabi-TUI!
+
+Select provider:
+  1) Gemini (Google AI)
+  2) OpenAI
+  3) OpenAI-compatible (Ollama, Groq, Together, etc.)
+
+Choice [1]: 
+```
 
 ## Configuration
 
-### Option 1: Environment Variable
-
-```bash
-export SABI_API_KEY="your-gemini-api-key"
-```
-
-### Option 2: Config File
-
-Edit `~/.config/sabi/config.toml`:
+All config stored in `~/.sabi/`:
 
 ```toml
-api_key = "your-gemini-api-key"
-model = "gemini-2.5-flash"           # optional
-max_history_messages = 20            # optional
-safe_mode = false                    # optional
-dangerous_patterns = ["rm -rf", "mkfs", "dd if="]  # optional
+# ~/.sabi/config.toml
+
+# Provider: "gemini" or "openai"
+provider = "gemini"
+api_key = "your-api-key"
+model = "gemini-2.5-flash"
+
+# For OpenAI-compatible APIs (Ollama, Groq, etc.)
+# provider = "openai"
+# base_url = "http://localhost:11434/v1"
+# model = "llama3.2"
+```
+
+### Provider Examples
+
+```toml
+# Gemini
+provider = "gemini"
+api_key = "your-gemini-key"
+model = "gemini-2.5-flash"
+
+# OpenAI
+provider = "openai"
+api_key = "sk-xxx"
+model = "gpt-4o"
+
+# Ollama (local)
+provider = "openai"
+base_url = "http://localhost:11434/v1"
+model = "llama3.2"
+
+# Groq
+provider = "openai"
+base_url = "https://api.groq.com/openai/v1"
+api_key = "gsk_xxx"
+model = "llama-3.3-70b-versatile"
 ```
 
 ## Usage
 
 ```bash
-# Normal mode
-sabi
-
-# Safe mode (preview only, no execution)
-sabi --safe
-
-# Help
-sabi --help
+sabi              # Normal mode
+sabi --safe       # Safe mode (preview only)
+sabi --version    # Show version
+sabi --help       # Show help
 ```
-
-### Basic Workflow
-
-1. **Type your query** in natural language
-   ```
-   > list all files larger than 100MB
-   ```
-
-2. **Review the proposed command**
-   ```
-   ┌─ Command ─────────────────────────────┐
-   │ find ~ -type f -size +100M            │
-   └───────────────────────────────────────┘
-   ```
-
-3. **Execute or Cancel**
-   - `Enter` - Execute the command
-   - `Esc` - Cancel and return to input
-
-4. **View AI analysis** of the results
 
 ### Slash Commands
 
 | Command | Description |
 |---------|-------------|
+| `/model [name]` | List or switch AI model |
 | `/new` | Start new session |
 | `/sessions` | List all sessions |
 | `/switch <id>` | Switch to session |
 | `/delete <id>` | Delete session |
-| `/image <path> [prompt]` | Analyze image file |
+| `/image <path>` | Analyze image file |
+| `/usage` | Show token usage stats |
+| `/export [file]` | Export chat to markdown |
 | `/clear` | Clear chat history |
 | `/help` | Show help |
 | `/quit` | Exit |
 
+Press `Tab` to autocomplete commands.
+
 ### Keybindings
 
-| State | Key | Action |
-|-------|-----|--------|
-| Input | `Enter` | Submit query |
-| Input | `Ctrl+O` | Paste image from clipboard |
-| Input | `Esc` | Quit |
-| Input | `↑`/`↓` | Scroll history |
-| Review | `Enter` | Execute command |
-| Review | `Esc` | Cancel |
-| Executing | `Esc` | Cancel command |
-| Any | `Ctrl+C` | Force quit |
-
-### Status Bar Indicators
-
-| Icon | Meaning |
-|------|---------|
-| 🐍 | Python available |
-| 🔒 SAFE | Safe mode enabled |
+| Key | Action |
+|-----|--------|
+| `Enter` | Submit / Execute |
+| `Esc` | Cancel / Quit |
+| `Tab` | Autocomplete |
+| `Ctrl+O` | Paste image from clipboard |
+| `↑`/`↓` | Scroll history |
+| `Ctrl+C` | Force quit |
 
 ## Safety Features
 
-### Dangerous Command Warning
+### 🛡️ 2-Step Confirmation for Dangerous Commands
 
-Commands matching dangerous patterns show a red warning:
+Commands targeting sensitive paths (`~`, `/Users`, `/etc`) or using destructive patterns (`rm -rf`) require:
 
-```
-┌─ ⚠ DANGEROUS COMMAND ─────────────────┐
-│ rm -rf ./node_modules                  │
-└────────────────────────────────────────┘
-```
-
-### Interactive Command Blocking
-
-Interactive commands (vim, ssh, htop, etc.) are blocked with suggestions:
+1. **First Enter** - Warning displayed
+2. **Second Enter** - Must type "I understand the risks"
 
 ```
-⚠️ Cannot run interactive command: `vim file.txt`
-Use write_file tool instead
+⚠️ DANGEROUS COMMAND DETECTED!
+This command could cause irreversible damage.
+Press Enter again to proceed to final confirmation.
+
+🛑 FINAL CONFIRMATION REQUIRED
+Type exactly: I understand the risks
 ```
 
-## Architecture
+### ⛔ Unknown Tool Blocking
 
-```
-Input → Thinking → ReviewAction → Executing → Finalizing → Input
-          ↓              ↓             ↓
-        (text)       (cancel)     (cancel)
-          ↓              ↓             ↓
-        Input ←──────────┴─────────────┘
-```
+AI cannot create arbitrary tools. Only allowed:
+- `run_cmd` - Shell commands
+- `run_python` - Python code
+- `read_file` / `write_file` - File operations
+- `search` - File search
+
+### 🚫 Dangerous Path Detection
+
+Operations on these paths trigger safety checks:
+- Home directories: `~`, `/Users`, `/home`, `/root`
+- System directories: `/etc`, `/var`, `/usr`, `/bin`, `/sbin`
+- macOS system: `/System`, `/Library`, `/Applications`
 
 ## Available Tools
-
-The AI can use these tools:
 
 | Tool | Description |
 |------|-------------|
@@ -188,24 +185,23 @@ The AI can use these tools:
 ## Troubleshooting
 
 ### "API key not found"
-Set `SABI_API_KEY` environment variable or edit `~/.config/sabi/config.toml`
-
-### "Terminal too small"
-Resize terminal to at least 40x10 characters
-
-### Command not executing
-Make sure you press `Enter` in Review state, not `Esc`
+Run `sabi` to start onboarding, or edit `~/.sabi/config.toml`
 
 ### Python not detected
 Install Python 3: `brew install python3` (macOS) or `apt install python3` (Linux)
 
+### Model not working
+Use `/model` to list available models and switch
+
 ## Uninstall
 
 ```bash
+# Using uninstall script
+curl -sSL https://raw.githubusercontent.com/n4ar/sabi-tui/main/uninstall.sh | bash
+
+# Or manually
 rm ~/.local/bin/sabi
-rm -rf ~/.config/sabi
-rm -rf ~/Library/Application\ Support/sabi  # macOS
-rm -rf ~/.local/share/sabi                   # Linux
+rm -rf ~/.sabi
 ```
 
 ## License

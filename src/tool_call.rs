@@ -5,6 +5,25 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Allowed tools
+const ALLOWED_TOOLS: &[&str] = &["run_cmd", "read_file", "write_file", "search", "run_python"];
+
+/// Dangerous path patterns (home dirs, system dirs)
+const DANGEROUS_PATHS: &[&str] = &[
+    "~",
+    "/Users",
+    "/home",
+    "/root",
+    "/etc",
+    "/var",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/System",
+    "/Library",
+    "/Applications",
+];
+
 /// A tool call request from the AI
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCall {
@@ -67,6 +86,47 @@ impl ToolCall {
     /// Check if this is a search tool call
     pub fn is_search(&self) -> bool {
         self.tool == "search"
+    }
+
+    /// Check if this tool is allowed
+    pub fn is_allowed_tool(&self) -> bool {
+        ALLOWED_TOOLS.contains(&self.tool.as_str())
+    }
+
+    /// Check if this tool targets a dangerous path
+    pub fn has_dangerous_path(&self) -> bool {
+        let paths_to_check = [&self.path, &self.directory, &self.command];
+        
+        for path in paths_to_check {
+            if path.is_empty() {
+                continue;
+            }
+            // Expand ~ to home dir for checking
+            let expanded = if path.starts_with('~') {
+                dirs::home_dir()
+                    .map(|h| path.replacen('~', &h.to_string_lossy(), 1))
+                    .unwrap_or_else(|| path.clone())
+            } else {
+                path.clone()
+            };
+            
+            for dangerous in DANGEROUS_PATHS {
+                if expanded.starts_with(dangerous) || expanded.contains(&format!(" {}", dangerous)) {
+                    return true;
+                }
+            }
+            
+            // Check for recursive delete patterns
+            if expanded.contains("rm ") && (expanded.contains(" -rf") || expanded.contains(" -fr")) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if this is a destructive operation
+    pub fn is_destructive(&self) -> bool {
+        !self.is_allowed_tool() || self.has_dangerous_path()
     }
 
     /// Parse AI response for tool call JSON

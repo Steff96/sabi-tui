@@ -1,6 +1,6 @@
 [package]
 name = "sabi-tui"
-version = "0.1.0"
+version = "0.1.5"
 edition = "2024"
 description = "A terminal-based AI agent implementing the ReAct pattern for system administration"
 authors = ["Sabi-TUI contributors"]
