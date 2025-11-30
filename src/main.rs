@@ -243,40 +243,36 @@ async fn run_loop(
                     }
 
                     // 12.4: ReviewAction → Executing transition
-                    if result == InputResult::ExecuteCommand {
-                        if let Some(ref tool) = app.current_tool {
-                            // Safe mode: don't execute, just show what would run
-                            if app.config.safe_mode {
-                                let desc = match tool.tool.as_str() {
-                                    "run_cmd" => format!("Would run: {}", tool.command),
-                                    "run_python" => format!("Would run Python:\n{}", tool.code),
-                                    "read_file" => format!("Would read: {}", tool.path),
-                                    "write_file" => format!(
-                                        "Would write {} bytes to: {}",
-                                        tool.content.len(),
-                                        tool.path
-                                    ),
-                                    "search" => format!(
-                                        "Would search '{}' in {}",
-                                        tool.pattern, tool.directory
-                                    ),
-                                    _ => format!("Would execute: {:?}", tool),
-                                };
-                                app.add_message(Message::system(&format!(
-                                    "🔒 [SAFE MODE] {}",
-                                    desc
-                                )));
-                                app.transition(StateEvent::AnalysisComplete);
-                            } else {
-                                let tool = tool.clone();
-                                let exec = CommandExecutor::new(&app.config);
-                                let tx_clone = tx.clone();
-                                let handle = tokio::spawn(async move {
-                                    let result = exec.execute_tool_async(&tool).await;
-                                    let _ = tx_clone.send(Event::CommandComplete(result));
-                                });
-                                app.running_task = Some(handle);
-                            }
+                    if result == InputResult::ExecuteCommand
+                        && let Some(ref tool) = app.current_tool
+                    {
+                        // Safe mode: don't execute, just show what would run
+                        if app.config.safe_mode {
+                            let desc = match tool.tool.as_str() {
+                                "run_cmd" => format!("Would run: {}", tool.command),
+                                "run_python" => format!("Would run Python:\n{}", tool.code),
+                                "read_file" => format!("Would read: {}", tool.path),
+                                "write_file" => format!(
+                                    "Would write {} bytes to: {}",
+                                    tool.content.len(),
+                                    tool.path
+                                ),
+                                "search" => {
+                                    format!("Would search '{}' in {}", tool.pattern, tool.directory)
+                                }
+                                _ => format!("Would execute: {:?}", tool),
+                            };
+                            app.add_message(Message::system(format!("🔒 [SAFE MODE] {}", desc)));
+                            app.transition(StateEvent::AnalysisComplete);
+                        } else {
+                            let tool = tool.clone();
+                            let exec = CommandExecutor::new(&app.config);
+                            let tx_clone = tx.clone();
+                            let handle = tokio::spawn(async move {
+                                let result = exec.execute_tool_async(&tool).await;
+                                let _ = tx_clone.send(Event::CommandComplete(result));
+                            });
+                            app.running_task = Some(handle);
                         }
                     }
                 }
@@ -323,7 +319,7 @@ async fn run_loop(
                                             interactive_detector.suggestion(&tc.command).unwrap_or(
                                                 "This command requires an interactive terminal",
                                             );
-                                        app.add_message(Message::model(&format!(
+                                        app.add_message(Message::model(format!(
                                             "⚠️ Cannot run interactive command: `{}`\n{}",
                                             tc.command, suggestion
                                         )));
@@ -349,7 +345,7 @@ async fn run_loop(
 
                                     // Block unknown tools entirely
                                     if !tc.is_allowed_tool() {
-                                        app.add_message(Message::system(&format!(
+                                        app.add_message(Message::system(format!(
                                             "⛔ Blocked unknown tool: '{}'\nAllowed: run_cmd, read_file, write_file, search, run_python",
                                             tc.tool
                                         )));
@@ -431,13 +427,13 @@ async fn run_loop(
                                 {
                                     if let Some(ref mut client) = ai_client {
                                         client.set_model(matched.clone());
-                                        app.add_message(Message::system(&format!(
+                                        app.add_message(Message::system(format!(
                                             "✓ Switched to: {}",
                                             matched
                                         )));
                                     }
                                 } else {
-                                    app.add_message(Message::system(&format!(
+                                    app.add_message(Message::system(format!(
                                         "✗ Model '{}' not found",
                                         model_name
                                     )));
@@ -457,14 +453,14 @@ async fn run_loop(
                                     })
                                     .collect::<Vec<_>>()
                                     .join("\n");
-                                app.add_message(Message::system(&format!(
+                                app.add_message(Message::system(format!(
                                     "Available models:\n{}\n\nUse /model <name> to switch",
                                     list
                                 )));
                             }
                         }
                         Err(e) => {
-                            app.add_message(Message::system(&format!(
+                            app.add_message(Message::system(format!(
                                 "✗ Failed to fetch models: {}",
                                 e
                             )));

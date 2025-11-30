@@ -213,20 +213,20 @@ max_output_lines = {}
         if let Ok(model) = std::env::var("SABI_MODEL") {
             self.model = model;
         }
-        if let Ok(max_history) = std::env::var("SABI_MAX_HISTORY") {
-            if let Ok(val) = max_history.parse() {
-                self.max_history_messages = val;
-            }
+        if let Ok(max_history) = std::env::var("SABI_MAX_HISTORY")
+            && let Ok(val) = max_history.parse()
+        {
+            self.max_history_messages = val;
         }
-        if let Ok(max_bytes) = std::env::var("SABI_MAX_OUTPUT_BYTES") {
-            if let Ok(val) = max_bytes.parse() {
-                self.max_output_bytes = val;
-            }
+        if let Ok(max_bytes) = std::env::var("SABI_MAX_OUTPUT_BYTES")
+            && let Ok(val) = max_bytes.parse()
+        {
+            self.max_output_bytes = val;
         }
-        if let Ok(max_lines) = std::env::var("SABI_MAX_OUTPUT_LINES") {
-            if let Ok(val) = max_lines.parse() {
-                self.max_output_lines = val;
-            }
+        if let Ok(max_lines) = std::env::var("SABI_MAX_OUTPUT_LINES")
+            && let Ok(val) = max_lines.parse()
+        {
+            self.max_output_lines = val;
         }
     }
 }

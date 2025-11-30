@@ -70,10 +70,9 @@ impl CommandExecutor {
 
     /// Execute Python code
     pub fn run_python(&self, code: &str) -> CommandResult {
-        use std::io::Write;
         use std::process::Command;
 
-        let mut child = match Command::new("python3")
+        let child = match Command::new("python3")
             .arg("-c")
             .arg(code)
             .stdout(std::process::Stdio::piped())
@@ -407,7 +406,7 @@ impl InteractiveCommandDetector {
     }
 
     pub fn suggestion(&self, command: &str) -> Option<&'static str> {
-        let cmd = command.trim().split_whitespace().next().unwrap_or("");
+        let cmd = command.split_whitespace().next().unwrap_or("");
         match cmd {
             "nano" | "vim" | "vi" | "emacs" => Some("Use /save or write_file tool instead"),
             "less" | "more" | "man" => Some("Use cat or read_file tool instead"),

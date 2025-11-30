@@ -7,8 +7,8 @@ use thiserror::Error;
 
 use crate::config::Config;
 use crate::message::{
-    GeminiCandidate, GeminiContent, GeminiPart, GeminiRequest, GeminiResponse,
-    GeminiSystemInstruction, Message, MessageRole,
+    GeminiContent, GeminiPart, GeminiRequest, GeminiResponse, GeminiSystemInstruction, Message,
+    MessageRole,
 };
 
 /// System prompt defining the AI's behavior as a system expert

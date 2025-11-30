@@ -77,9 +77,7 @@ pub fn run_onboarding() -> io::Result<Config> {
     };
 
     // Save config
-    config
-        .save()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    config.save().map_err(|e| io::Error::other(e.to_string()))?;
 
     println!("\n✓ Configuration saved to ~/.sabi/config.toml");
     println!("  Run `sabi` to start!\n");

@@ -375,7 +375,7 @@ impl<'a> App<'a> {
         let msg = if let Some((_, img)) = self.pending_image.take() {
             // Remove the [📷 ...] marker from input
             let clean_input = input
-                .replace(|c: char| c == '[' || c == ']' || c == '📷', "")
+                .replace(['[', ']', '📷'], "")
                 .split_whitespace()
                 .filter(|s| !s.ends_with(".png") && !s.ends_with(".jpg"))
                 .collect::<Vec<_>>()
@@ -436,9 +436,9 @@ impl<'a> App<'a> {
                 let filename = arg.unwrap_or("chat_export.md");
                 match self.export_to_markdown(filename) {
                     Ok(_) => {
-                        self.add_message(Message::system(&format!("✓ Exported to {}", filename)))
+                        self.add_message(Message::system(format!("✓ Exported to {}", filename)))
                     }
-                    Err(e) => self.add_message(Message::system(&format!("✗ Export failed: {}", e))),
+                    Err(e) => self.add_message(Message::system(format!("✗ Export failed: {}", e))),
                 }
                 SubmitResult::Handled
             }
@@ -455,7 +455,7 @@ impl<'a> App<'a> {
                             return SubmitResult::Query;
                         }
                         Err(e) => {
-                            self.add_message(Message::system(&format!(
+                            self.add_message(Message::system(format!(
                                 "Failed to load image: {}",
                                 e
                             )));
@@ -468,7 +468,7 @@ impl<'a> App<'a> {
             }
             "/new" => {
                 self.new_session();
-                self.add_message(Message::system(&format!(
+                self.add_message(Message::system(format!(
                     "New session started: {}",
                     self.current_session_id
                 )));
@@ -496,7 +496,7 @@ impl<'a> App<'a> {
                             )
                         })
                         .collect();
-                    self.add_message(Message::system(&format!("Sessions:\n{}", list.join("\n"))));
+                    self.add_message(Message::system(format!("Sessions:\n{}", list.join("\n"))));
                 }
                 SubmitResult::Handled
             }
@@ -504,9 +504,9 @@ impl<'a> App<'a> {
                 if let Some(id) = arg {
                     match self.switch_session(id) {
                         Ok(_) => self
-                            .add_message(Message::system(&format!("Switched to session: {}", id))),
+                            .add_message(Message::system(format!("Switched to session: {}", id))),
                         Err(e) => {
-                            self.add_message(Message::system(&format!("Failed to switch: {}", e)))
+                            self.add_message(Message::system(format!("Failed to switch: {}", e)))
                         }
                     }
                 } else {
@@ -523,9 +523,9 @@ impl<'a> App<'a> {
                     } else {
                         match Self::delete_session(id) {
                             Ok(_) => self
-                                .add_message(Message::system(&format!("Deleted session: {}", id))),
+                                .add_message(Message::system(format!("Deleted session: {}", id))),
                             Err(e) => self
-                                .add_message(Message::system(&format!("Failed to delete: {}", e))),
+                                .add_message(Message::system(format!("Failed to delete: {}", e))),
                         }
                     }
                 } else {
@@ -539,7 +539,7 @@ impl<'a> App<'a> {
                 SubmitResult::Quit
             }
             _ => {
-                self.add_message(Message::system(&format!(
+                self.add_message(Message::system(format!(
                     "Unknown command: {}. Type /help for available commands.",
                     cmd
                 )));
@@ -552,16 +552,14 @@ impl<'a> App<'a> {
     fn save_session(&self, filename: &str) -> std::io::Result<()> {
         let mut session = Session::from_messages(&self.messages);
         session.id = self.current_session_id.clone();
-        let json = serde_json::to_string_pretty(&session)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let json = serde_json::to_string_pretty(&session).map_err(std::io::Error::other)?;
         std::fs::write(filename, json)
     }
 
     /// Load session from file
     fn load_session(&mut self, filename: &str) -> std::io::Result<()> {
         let json = std::fs::read_to_string(filename)?;
-        let session: Session = serde_json::from_str(&json)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let session: Session = serde_json::from_str(&json).map_err(std::io::Error::other)?;
         self.messages
             .retain(|m| m.role == crate::message::MessageRole::System);
         self.messages.extend(session.messages);
@@ -706,9 +704,9 @@ impl<'a> App<'a> {
                 match crate::message::ImageData::from_file(&path) {
                     Ok(img) => {
                         self.pending_image = Some((path.clone(), img));
-                        self.input_textarea.insert_str(&format!(
+                        self.input_textarea.insert_str(format!(
                             "[📷 {}] ",
-                            path.split('/').last().unwrap_or("image")
+                            path.split('/').next_back().unwrap_or("image")
                         ));
                     }
                     Err(_) => {
@@ -745,7 +743,7 @@ impl<'a> App<'a> {
                             .map(|(cmd, desc)| format!("{} - {}", cmd, desc))
                             .collect::<Vec<_>>()
                             .join("\n");
-                        self.add_message(Message::system(&format!("Commands:\n{}", list)));
+                        self.add_message(Message::system(format!("Commands:\n{}", list)));
                     }
                 }
                 InputResult::Handled

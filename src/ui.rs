@@ -72,7 +72,7 @@ fn parse_markdown_line(line: &str, base_style: Style) -> Line<'static> {
                     current.clear();
                 }
                 let mut italic_text = String::new();
-                while let Some(c) = chars.next() {
+                for c in chars.by_ref() {
                     if c == '*' {
                         break;
                     }
@@ -87,7 +87,7 @@ fn parse_markdown_line(line: &str, base_style: Style) -> Line<'static> {
                 current.clear();
             }
             let mut code_text = String::new();
-            while let Some(c) = chars.next() {
+            for c in chars.by_ref() {
                 if c == '`' {
                     break;
                 }
@@ -346,7 +346,7 @@ fn render_command_box(frame: &mut Frame, app: &App, area: Rect) {
     if app.dangerous_command_detected {
         border_style = border_style.add_modifier(Modifier::BOLD);
         // Blink effect based on spinner frame
-        if app.spinner_frame % 2 == 0 {
+        if app.spinner_frame.is_multiple_of(2) {
             border_style = border_style.add_modifier(Modifier::SLOW_BLINK);
         }
     }
