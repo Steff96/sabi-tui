@@ -53,14 +53,14 @@ fn print_version() {
     println!("sabi {}", VERSION);
 }
 
-/// Check for updates from crates.io (non-blocking)
+/// Check for updates from GitHub releases (non-blocking)
 fn check_for_updates() {
     std::thread::spawn(|| {
         if let Ok(latest) = fetch_latest_version()
             && is_newer(&latest, VERSION)
         {
             eprintln!(
-                "\n📦 Update available: {} → {}\n   Run: cargo install sabi-tui\n",
+                "\n📦 Update available: {} → {}\n   Run: curl -sSL https://raw.githubusercontent.com/n4ar/sabi-tui/main/setup.sh | bash\n",
                 VERSION, latest
             );
         }
@@ -69,16 +69,16 @@ fn check_for_updates() {
 
 fn fetch_latest_version() -> Result<String, ()> {
     let resp = reqwest::blocking::Client::new()
-        .get("https://crates.io/api/v1/crates/sabi-tui")
+        .get("https://api.github.com/repos/n4ar/sabi-tui/releases/latest")
         .header("User-Agent", format!("sabi-tui/{}", VERSION))
         .timeout(Duration::from_secs(3))
         .send()
         .map_err(|_| ())?;
 
     let json: serde_json::Value = resp.json().map_err(|_| ())?;
-    json["crate"]["max_version"]
+    json["tag_name"]
         .as_str()
-        .map(String::from)
+        .map(|s| s.trim_start_matches('v').to_string())
         .ok_or(())
 }
 
