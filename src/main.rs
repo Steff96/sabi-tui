@@ -42,11 +42,16 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn print_help() {
     println!("sabi - AI-powered terminal assistant\n");
-    println!("Usage: sabi [OPTIONS]\n");
+    println!("Usage:");
+    println!("  sabi              Start interactive TUI");
+    println!("  sabi -q 'prompt'  Quick query (text response only)");
+    println!("  sabi -x 'prompt'  Execute command from prompt\n");
     println!("Options:");
+    println!("  -q, --query      Quick mode: get text response");
+    println!("  -x, --exec       Execute mode: run command");
     println!("  --safe           Safe mode: show commands but don't execute");
-    println!("  --version, -v    Show version");
-    println!("  --help, -h       Show this help message");
+    println!("  -v, --version    Show version");
+    println!("  -h, --help       Show this help message");
 }
 
 fn print_version() {
@@ -145,6 +150,308 @@ fn get_os_info() -> (String, String) {
     }
 }
 
+/// Quick CLI mode - single query without TUI
+async fn run_quick_mode(config: &Config, prompt: &str, execute: bool) -> Result<()> {
+    let ai_client = AIClient::new(config)?;
+    let executor = CommandExecutor::new(config);
+
+    // Build system prompt
+    let system_context = get_system_context();
+    let system_prompt = format!("{}\n\n{}", SYSTEM_PROMPT, system_context);
+
+    let messages = vec![Message::system(&system_prompt), Message::user(prompt)];
+
+    // Get AI response
+    println!("🤔 Thinking...");
+    let response = ai_client.chat(&messages).await?;
+
+    // Parse response
+    match ParsedResponse::parse(&response) {
+        ParsedResponse::ToolCall(tool) => {
+            if execute {
+                // Show confirmation dialog
+                if !show_confirmation_dialog(&tool.command, &response)? {
+                    println!("❌ Cancelled");
+                    return Ok(());
+                }
+
+                println!("🔧 Executing...");
+                let result = executor.execute_tool_async(&tool).await;
+
+                // Get AI summary
+                println!("🤖 Summarizing...");
+                let user_msg = format!(
+                    "Command: {}\nExit code: {}\nOutput:\n{}{}",
+                    tool.command,
+                    result.exit_code,
+                    result.stdout,
+                    if result.stderr.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\nStderr:\n{}", result.stderr)
+                    }
+                );
+                let summary_messages = vec![
+                    Message::system("Summarize this command output concisely in 1-2 sentences."),
+                    Message::user(&user_msg),
+                ];
+                let summary = ai_client
+                    .chat(&summary_messages)
+                    .await
+                    .unwrap_or_else(|_| "Execution complete.".into());
+
+                // Show result TUI
+                show_result_dialog(
+                    &tool.command,
+                    &result.stdout,
+                    &result.stderr,
+                    result.exit_code,
+                    &summary,
+                )?;
+
+                std::process::exit(result.exit_code);
+            } else {
+                println!("{}", tool.command);
+            }
+        }
+        ParsedResponse::TextResponse(text) => {
+            println!("{}", text);
+        }
+    }
+
+    Ok(())
+}
+
+/// Show TUI confirmation dialog for command execution
+fn show_confirmation_dialog(command: &str, explanation: &str) -> Result<bool> {
+    use crossterm::event::{self, Event, KeyCode};
+    use ratatui::{
+        layout::{Alignment, Constraint, Direction, Layout, Rect},
+        style::{Color, Modifier, Style},
+        text::{Line, Span},
+        widgets::{Block, Borders, Paragraph, Wrap},
+    };
+
+    enable_raw_mode()?;
+    let mut stdout = stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let result = loop {
+        terminal.draw(|f| {
+            let area = f.area();
+
+            // Center dialog
+            let dialog_width = area.width.min(80);
+            let dialog_height = area.height.min(20);
+            let x = (area.width.saturating_sub(dialog_width)) / 2;
+            let y = (area.height.saturating_sub(dialog_height)) / 2;
+            let dialog_area = Rect::new(x, y, dialog_width, dialog_height);
+
+            // Split into sections
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3), // Title
+                    Constraint::Min(5),    // Explanation
+                    Constraint::Length(3), // Command
+                    Constraint::Length(3), // Buttons
+                ])
+                .split(dialog_area);
+
+            // Title
+            let title = Paragraph::new("⚠️  Confirm Command Execution")
+                .style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL));
+            f.render_widget(title, chunks[0]);
+
+            // Explanation
+            let explanation_text = Paragraph::new(explanation)
+                .style(Style::default().fg(Color::White))
+                .wrap(Wrap { trim: true })
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" AI Explanation "),
+                );
+            f.render_widget(explanation_text, chunks[1]);
+
+            // Command
+            let cmd_text = Paragraph::new(command)
+                .style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).title(" Command "));
+            f.render_widget(cmd_text, chunks[2]);
+
+            // Buttons
+            let buttons = Paragraph::new(Line::from(vec![
+                Span::styled(
+                    " [Enter] ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("Execute  "),
+                Span::styled(
+                    " [Esc] ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("Cancel"),
+            ]))
+            .alignment(Alignment::Center)
+            .block(Block::default().borders(Borders::ALL));
+            f.render_widget(buttons, chunks[3]);
+        })?;
+
+        // Handle input
+        if let Event::Key(key) = event::read()? {
+            match key.code {
+                KeyCode::Enter => break true,
+                KeyCode::Esc | KeyCode::Char('q') => break false,
+                _ => {}
+            }
+        }
+    };
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+
+    Ok(result)
+}
+
+/// Show TUI result dialog after execution
+fn show_result_dialog(
+    command: &str,
+    stdout_out: &str,
+    stderr_out: &str,
+    exit_code: i32,
+    summary: &str,
+) -> Result<()> {
+    use crossterm::event::{self, Event, KeyCode};
+    use ratatui::{
+        layout::{Alignment, Constraint, Direction, Layout, Rect},
+        style::{Color, Modifier, Style},
+        text::{Line, Span},
+        widgets::{Block, Borders, Paragraph, Wrap},
+    };
+
+    enable_raw_mode()?;
+    let mut stdout_handle = stdout();
+    execute!(stdout_handle, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout_handle);
+    let mut terminal = Terminal::new(backend)?;
+
+    let status_color = if exit_code == 0 {
+        Color::Green
+    } else {
+        Color::Red
+    };
+    let status_icon = if exit_code == 0 { "✅" } else { "❌" };
+
+    loop {
+        terminal.draw(|f| {
+            let area = f.area();
+
+            let dialog_width = area.width.min(90);
+            let dialog_height = area.height.min(25);
+            let x = (area.width.saturating_sub(dialog_width)) / 2;
+            let y = (area.height.saturating_sub(dialog_height)) / 2;
+            let dialog_area = Rect::new(x, y, dialog_width, dialog_height);
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3), // Title
+                    Constraint::Length(3), // Command
+                    Constraint::Min(6),    // Output
+                    Constraint::Length(5), // Summary
+                    Constraint::Length(3), // Footer
+                ])
+                .split(dialog_area);
+
+            // Title
+            let title = Paragraph::new(format!(
+                "{} Execution Complete (exit: {})",
+                status_icon, exit_code
+            ))
+            .style(
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .alignment(Alignment::Center)
+            .block(Block::default().borders(Borders::ALL));
+            f.render_widget(title, chunks[0]);
+
+            // Command
+            let cmd = Paragraph::new(command)
+                .style(Style::default().fg(Color::Cyan))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).title(" Command "));
+            f.render_widget(cmd, chunks[1]);
+
+            // Output
+            let output = if stderr_out.is_empty() {
+                stdout_out.to_string()
+            } else {
+                format!("{}\n--- stderr ---\n{}", stdout_out, stderr_out)
+            };
+            let output_widget = Paragraph::new(output)
+                .style(Style::default().fg(Color::White))
+                .wrap(Wrap { trim: false })
+                .block(Block::default().borders(Borders::ALL).title(" Output "));
+            f.render_widget(output_widget, chunks[2]);
+
+            // AI Summary
+            let summary_widget = Paragraph::new(summary)
+                .style(Style::default().fg(Color::Yellow))
+                .wrap(Wrap { trim: true })
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" 🤖 AI Summary "),
+                );
+            f.render_widget(summary_widget, chunks[3]);
+
+            // Footer
+            let footer = Paragraph::new(Line::from(vec![
+                Span::styled(
+                    " [Enter/Esc] ",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("Close"),
+            ]))
+            .alignment(Alignment::Center)
+            .block(Block::default().borders(Borders::ALL));
+            f.render_widget(footer, chunks[4]);
+        })?;
+
+        if let Event::Key(key) = event::read()? {
+            match key.code {
+                KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => break,
+                _ => {}
+            }
+        }
+    }
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -172,6 +479,23 @@ async fn main() -> Result<()> {
     // Run onboarding if no API key configured
     if !config.has_api_key() {
         config = onboarding::run_onboarding().context("Onboarding failed")?;
+    }
+
+    // Quick mode: -q "prompt" (text only) or -x "prompt" (execute)
+    let query_mode = args.iter().position(|a| a == "-q" || a == "--query");
+    let exec_mode = args.iter().position(|a| a == "-x" || a == "--exec");
+
+    if let Some(pos) = query_mode.or(exec_mode) {
+        let execute = exec_mode.is_some();
+        let prompt = args.get(pos + 1).map(|s| s.as_str()).unwrap_or("");
+
+        if prompt.is_empty() {
+            eprintln!("Error: No prompt provided");
+            eprintln!("Usage: sabi -q 'prompt' or sabi -x 'prompt'");
+            std::process::exit(1);
+        }
+
+        return run_quick_mode(&config, prompt, execute).await;
     }
 
     enable_raw_mode().context("Failed to enable raw mode")?;

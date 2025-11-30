@@ -104,11 +104,29 @@ model = "llama-3.3-70b-versatile"
 ## Usage
 
 ```bash
-sabi              # Normal mode
-sabi --safe       # Safe mode (preview only)
-sabi --version    # Show version
-sabi --help       # Show help
+sabi                    # Interactive TUI mode
+sabi -q "prompt"        # Quick query (text response)
+sabi -x "prompt"        # Execute mode (with confirmation)
+sabi --safe             # Safe mode (preview only)
+sabi --version          # Show version
+sabi --help             # Show help
 ```
+
+### Quick CLI Mode
+
+Get instant answers without entering the TUI:
+
+```bash
+# Quick query - get text response
+sabi -q "what is my IP address"
+
+# Execute mode - run command with confirmation dialog
+sabi -x "list large files in current directory"
+```
+
+Execute mode (`-x`) shows:
+1. **Confirmation dialog** - Review command before execution
+2. **Result dialog** - Output with AI summary
 
 ### Slash Commands
 

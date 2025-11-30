@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.6] - 2025-11-30
+
+### Added
+- ⚡ **Quick CLI mode** - `sabi -q "prompt"` for text response, `sabi -x "prompt"` for execution
+- 🔔 **Auto-update check** - Notifies when new version available on startup
+- 🎯 **Execute confirmation dialog** - TUI dialog showing AI explanation before running commands
+- 📊 **Result dialog with AI summary** - Shows output and AI-generated summary after execution
+
+### Changed
+- `-x` mode now shows full TUI confirmation and result dialogs
+
 ## [0.1.5] - 2025-11-30
 
 ### Added
