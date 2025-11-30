@@ -1,5 +1,7 @@
 //! Sabi-TUI: A terminal-based AI agent implementing the ReAct pattern
 
+#![allow(dead_code)]
+
 mod ai_client;
 mod app;
 mod config;
