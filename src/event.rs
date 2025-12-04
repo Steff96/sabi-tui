@@ -28,6 +28,8 @@ pub enum Event {
     CommandCancelled,
     /// Models list response (models, optional model to switch to)
     ModelsResponse(Result<Vec<String>, AIError>, Option<String>),
+    /// MCP tool call result
+    McpResult(Result<serde_json::Value, String>, String, String), // (result, server, tool)
 }
 
 /// Handles async event collection and distribution

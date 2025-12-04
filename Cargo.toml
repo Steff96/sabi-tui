@@ -1,6 +1,6 @@
 [package]
 name = "sabi-tui"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 description = "Terminal AI agent with ReAct pattern - execute shell commands, run Python, analyze images"
 authors = ["n4ar"]

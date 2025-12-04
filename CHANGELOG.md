@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.7] - 2025-12-03
+
+### Added
+- 🔌 **MCP Support** - Extend Sabi with Model Context Protocol servers
+- 🛠️ **MCP CLI** - Manage servers via `sabi mcp add/remove/list/env`
+- 🔑 **Environment variables** - `sabi mcp env <name> KEY=VALUE` to set API keys
+- 🔄 **Auto-restart** - MCP servers automatically restart on failure
+- ⏱️ **30s timeout** - MCP calls timeout after 30 seconds to prevent hanging
+- 📄 **Auto-create mcp.toml** - Config file created during onboarding
+- 🐚 **Shell escape** - Use `!command` to run shell commands directly without AI
+
+### Changed
+- MCP tool execution is now async (non-blocking UI)
+- Added `mcp` to allowed tools list
+
 ## [0.1.6] - 2025-11-30
 
 ### Added

@@ -1,0 +1,29 @@
+# MCP Servers Configuration
+# Copy this file to ~/.sabi/mcp.toml and customize
+
+# Filesystem server - file operations
+[servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/home"]
+
+# Git server - git operations
+[servers.git]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-git"]
+
+# SQLite server - database queries
+# [servers.sqlite]
+# command = "uvx"
+# args = ["mcp-server-sqlite", "--db-path", "~/data.db"]
+
+# Brave Search - web search
+# [servers.brave]
+# command = "npx"
+# args = ["-y", "@anthropic/mcp-server-brave-search"]
+# env = { BRAVE_API_KEY = "your-api-key" }
+
+# Custom local server
+# [servers.custom]
+# command = "/path/to/your/mcp-server"
+# args = ["--config", "config.json"]
+# env = { API_KEY = "xxx" }

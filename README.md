@@ -10,6 +10,7 @@ A terminal-based AI agent implementing the ReAct (Reasoning + Acting) pattern fo
 - 💻 **Terminal access** - Execute commands with safety checks
 - 🐍 **Python executor** - Run Python code for calculations (auto-detected)
 - 🖼️ **Image analysis** - Paste images from clipboard or file for AI analysis
+- 🔌 **MCP Support** - Extend with Model Context Protocol servers
 - 🔒 **Safe mode** - Preview commands without execution
 - 💾 **Multi-session** - Save and switch between conversation sessions
 - 🛡️ **2-step confirmation** - Dangerous commands require explicit confirmation
@@ -108,6 +109,7 @@ sabi                    # Interactive TUI mode
 sabi -q "prompt"        # Quick query (text response)
 sabi -x "prompt"        # Execute mode (with confirmation)
 sabi --safe             # Safe mode (preview only)
+sabi mcp <command>      # Manage MCP servers
 sabi --version          # Show version
 sabi --help             # Show help
 ```
@@ -146,6 +148,16 @@ Execute mode (`-x`) shows:
 
 Press `Tab` to autocomplete commands.
 
+### Shell Escape
+
+Use `!` prefix to run shell commands directly without AI:
+
+```bash
+!ls -la          # List files
+!pwd             # Print working directory
+!cat file.txt    # View file contents
+```
+
 ### Keybindings
 
 | Key | Action |
@@ -156,6 +168,53 @@ Press `Tab` to autocomplete commands.
 | `Ctrl+O` | Paste image from clipboard |
 | `↑`/`↓` | Scroll history |
 | `Ctrl+C` | Force quit |
+
+## MCP (Model Context Protocol)
+
+Extend Sabi with external tools via MCP servers (stdio or HTTP).
+
+### Managing MCP Servers
+
+```bash
+# Add stdio server
+sabi mcp add <name> <command> [args...]
+
+# Add HTTP server
+sabi mcp add -t http -H "API-KEY: xxx" <name> <url>
+
+# Set environment variable (stdio)
+sabi mcp env <name> KEY=VALUE
+
+# List configured servers
+sabi mcp list
+
+# Remove a server
+sabi mcp remove <name>
+```
+
+### Examples
+
+```bash
+# Filesystem server (stdio)
+sabi mcp add filesystem npx -y @modelcontextprotocol/server-filesystem /home
+
+# Git server (stdio)
+sabi mcp add git npx -y @modelcontextprotocol/server-git
+
+# Brave Search with API key (stdio)
+sabi mcp add brave npx -y @anthropic/mcp-server-brave-search
+sabi mcp env brave BRAVE_API_KEY=your-api-key
+
+# Context7 (HTTP)
+sabi mcp add -t http -H "CONTEXT7_API_KEY: your-key" context7 https://mcp.context7.com/mcp
+
+# HTTP server with multiple headers
+sabi mcp add -t http -H "Authorization: Bearer xxx" -H "X-Custom: value" myserver https://example.com/mcp
+```
+
+### MCP Configuration File
+
+Servers are stored in `~/.sabi/mcp.toml`. See [examples/mcp.toml.example](examples/mcp.toml.example) for a complete example.
 
 ## Safety Features
 
@@ -182,6 +241,7 @@ AI cannot create arbitrary tools. Only allowed:
 - `run_python` - Python code
 - `read_file` / `write_file` - File operations
 - `search` - File search
+- `mcp` - MCP server tools
 
 ### 🚫 Dangerous Path Detection
 
@@ -199,6 +259,7 @@ Operations on these paths trigger safety checks:
 | `read_file` | Read file contents |
 | `write_file` | Write to file |
 | `search` | Search for files |
+| `mcp` | Call MCP server tools |
 
 ## Troubleshooting
 
@@ -210,6 +271,11 @@ Install Python 3: `brew install python3` (macOS) or `apt install python3` (Linux
 
 ### Model not working
 Use `/model` to list available models and switch
+
+### MCP server not starting
+- Check if the command exists: `npx -y @modelcontextprotocol/server-filesystem --help`
+- Verify environment variables: `sabi mcp list`
+- Check server logs in stderr
 
 ## Uninstall
 

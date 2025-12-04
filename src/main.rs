@@ -8,6 +8,7 @@ mod config;
 mod event;
 mod executor;
 mod gemini;
+mod mcp;
 mod message;
 mod onboarding;
 mod openai;
@@ -31,6 +32,7 @@ use config::Config;
 use event::{Event, EventHandler};
 use executor::{CommandExecutor, DangerousCommandDetector, InteractiveCommandDetector};
 use gemini::SYSTEM_PROMPT;
+use mcp::McpClient;
 use message::Message;
 use state::StateEvent;
 use tool_call::ParsedResponse;
@@ -45,13 +47,18 @@ fn print_help() {
     println!("Usage:");
     println!("  sabi              Start interactive TUI");
     println!("  sabi -q 'prompt'  Quick query (text response only)");
-    println!("  sabi -x 'prompt'  Execute command from prompt\n");
+    println!("  sabi -x 'prompt'  Execute command from prompt");
+    println!("  sabi mcp <cmd>    Manage MCP servers\n");
     println!("Options:");
     println!("  -q, --query      Quick mode: get text response");
     println!("  -x, --exec       Execute mode: run command");
     println!("  --safe           Safe mode: show commands but don't execute");
     println!("  -v, --version    Show version");
-    println!("  -h, --help       Show this help message");
+    println!("  -h, --help       Show this help message\n");
+    println!("MCP Commands:");
+    println!("  sabi mcp add <name> <cmd> [args]  Add MCP server");
+    println!("  sabi mcp remove <name>            Remove MCP server");
+    println!("  sabi mcp list                     List MCP servers");
 }
 
 fn print_version() {
@@ -157,7 +164,32 @@ async fn run_quick_mode(config: &Config, prompt: &str, execute: bool) -> Result<
 
     // Build system prompt
     let system_context = get_system_context();
-    let system_prompt = format!("{}\n\n{}", SYSTEM_PROMPT, system_context);
+    let mut system_prompt = format!("{}\n\n{}", SYSTEM_PROMPT, system_context);
+
+    // Add MCP tools if available
+    if let Ok(mcp_client) = crate::mcp::McpClient::load() {
+        let _ = mcp_client.start_all();
+        if let Ok(all_tools) = mcp_client.list_all_tools()
+            && !all_tools.is_empty()
+        {
+            system_prompt.push_str("\n\n6. Call MCP external tools:\n   {\"tool\": \"mcp\", \"server\": \"<server>\", \"name\": \"<tool_name>\", \"arguments\": {<args>}}\n\nAvailable MCP tools:\n");
+            for (server, tools) in &all_tools {
+                for tool in tools {
+                    let desc = tool.description.as_deref().unwrap_or("").lines().next().unwrap_or("");
+                    let args = tool.input_schema.as_ref()
+                        .and_then(|s| s.get("properties"))
+                        .and_then(|p| p.as_object())
+                        .map(|props| props.keys().cloned().collect::<Vec<_>>().join(", "))
+                        .unwrap_or_default();
+                    system_prompt.push_str(&format!(
+                        "- {}/{}: {}\n  Args: {}\n  Example: {{\"tool\": \"mcp\", \"server\": \"{}\", \"name\": \"{}\", \"arguments\": {{{}}}}}\n",
+                        server, tool.name, desc, args, server, tool.name,
+                        if args.is_empty() { "".to_string() } else { format!("\"{}\": \"...\"", args.split(", ").next().unwrap_or("")) }
+                    ));
+                }
+            }
+        }
+    }
 
     let messages = vec![Message::system(&system_prompt), Message::user(prompt)];
 
@@ -168,7 +200,21 @@ async fn run_quick_mode(config: &Config, prompt: &str, execute: bool) -> Result<
     // Parse response
     match ParsedResponse::parse(&response) {
         ParsedResponse::ToolCall(tool) => {
-            if execute {
+            if tool.tool == "mcp" {
+                // Handle MCP tool call
+                println!("🔌 Calling MCP tool: {}/{}", tool.server, tool.name);
+                if let Ok(mcp_client) = crate::mcp::McpClient::load() {
+                    let _ = mcp_client.start_all();
+                    match mcp_client.call_tool(&tool.server, &tool.name, tool.arguments.clone()) {
+                        Ok(result) => {
+                            println!("{}", serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()));
+                        }
+                        Err(e) => {
+                            println!("❌ MCP error: {:?}", e);
+                        }
+                    }
+                }
+            } else if execute {
                 // Show confirmation dialog
                 if !show_confirmation_dialog(&tool.command, &response)? {
                     println!("❌ Cancelled");
@@ -469,6 +515,16 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Handle MCP commands: sabi mcp <subcommand>
+    if args.get(1).map(|s| s.as_str()) == Some("mcp") {
+        let mcp_args: Vec<String> = args[2..].to_vec();
+        if let Err(e) = mcp::handle_mcp_command(&mcp_args) {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     let mut config = Config::load().context("Failed to load configuration")?;
 
     // CLI flag overrides config
@@ -479,6 +535,8 @@ async fn main() -> Result<()> {
     // Run onboarding if no API key configured
     if !config.has_api_key() {
         config = onboarding::run_onboarding().context("Onboarding failed")?;
+        // Create default mcp.toml during onboarding
+        let _ = mcp::McpConfig::create_default_if_missing();
     }
 
     // Quick mode: -q "prompt" (text only) or -x "prompt" (execute)
@@ -507,11 +565,14 @@ async fn main() -> Result<()> {
     let mut app = App::new(config.clone());
     let mut events = EventHandler::new(TICK_RATE);
 
+    // Start MCP servers if configured
+    let mcp_servers = app.start_mcp_servers();
+
     // Gather system context
     let system_context = get_system_context();
 
     // Build system prompt (include Python tool if available)
-    let system_prompt = if app.python_available {
+    let mut system_prompt = if app.python_available {
         format!(
             "{}\n\n5. Run Python code:\n   {{\"tool\": \"run_python\", \"code\": \"<python code>\"}}\n\nEXAMPLE:\n- \"calculate 2^100\" → {{\"tool\": \"run_python\", \"code\": \"print(2**100)\"}}\n\n{}",
             SYSTEM_PROMPT, system_context
@@ -519,7 +580,22 @@ async fn main() -> Result<()> {
     } else {
         format!("{}\n\n{}", SYSTEM_PROMPT, system_context)
     };
+
+    // Add MCP tools to system prompt
+    let mcp_tools_prompt = app.get_mcp_tools_prompt();
+    if !mcp_tools_prompt.is_empty() {
+        system_prompt.push_str(&mcp_tools_prompt);
+    }
+
     app.add_message(Message::system(&system_prompt));
+
+    // Show MCP status if servers started
+    if !mcp_servers.is_empty() {
+        app.add_message(Message::model(format!(
+            "🔌 MCP servers started: {}",
+            mcp_servers.join(", ")
+        )));
+    }
 
     // Auto-load previous session
     app.auto_load();
@@ -623,10 +699,41 @@ async fn run_loop(
                                 "search" => {
                                     format!("Would search '{}' in {}", tool.pattern, tool.directory)
                                 }
+                                "mcp" => {
+                                    format!("Would call MCP: {}/{}", tool.server, tool.name)
+                                }
                                 _ => format!("Would execute: {:?}", tool),
                             };
                             app.add_message(Message::system(format!("🔒 [SAFE MODE] {}", desc)));
                             app.transition(StateEvent::AnalysisComplete);
+                        } else if tool.is_mcp() {
+                            // Execute MCP tool asynchronously
+                            if app.mcp_client.is_some() {
+                                let server = tool.server.clone();
+                                let name = tool.name.clone();
+                                let arguments = tool.arguments.clone();
+                                let tx_clone = tx.clone();
+                                
+                                // Clone what we need for the blocking task
+                                let mcp = McpClient::load();
+                                
+                                tokio::task::spawn_blocking(move || {
+                                    let result = match mcp {
+                                        Ok(client) => {
+                                            // Start the server if needed
+                                            let _ = client.start_server(&server);
+                                            client.call_tool(&server, &name, arguments)
+                                                .map_err(|e| e.to_string())
+                                        }
+                                        Err(e) => Err(e.to_string()),
+                                    };
+                                    let _ = tx_clone.send(Event::McpResult(result, server, name));
+                                });
+                                // State already transitioned to Executing by handle_key_event
+                            } else {
+                                app.add_message(Message::system("❌ MCP client not available"));
+                                app.transition(StateEvent::AnalysisComplete);
+                            }
                         } else {
                             let tool = tool.clone();
                             let exec = CommandExecutor::new(&app.config);
@@ -671,6 +778,12 @@ async fn run_loop(
                                                 &tc.directory
                                             }
                                         ),
+                                        "mcp" => format!(
+                                            "mcp: {}/{}\n{}",
+                                            tc.server,
+                                            tc.name,
+                                            serde_json::to_string_pretty(&tc.arguments).unwrap_or_default()
+                                        ),
                                         _ => format!("{:?}", tc),
                                     };
 
@@ -700,7 +813,7 @@ async fn run_loop(
                                     }
 
                                     app.set_action_text(&display);
-                                    app.current_tool = Some(tc.clone());
+                                    app.current_tool = Some((*tc).clone());
 
                                     // Check for dangerous operations
                                     app.dangerous_command_detected = tc.is_destructive()
@@ -827,6 +940,38 @@ async fn run_loop(
                                 "✗ Failed to fetch models: {}",
                                 e
                             )));
+                        }
+                    }
+                }
+
+                Event::McpResult(result, server, tool_name) => {
+                    app.running_task = None;
+                    match result {
+                        Ok(value) => {
+                            let output = serde_json::to_string_pretty(&value).unwrap_or_default();
+                            let feedback = format!(
+                                "Tool: mcp/{}/{}\nOutput:\n{}",
+                                server, tool_name, output
+                            );
+                            app.add_message(Message::user(&feedback));
+                            app.transition(StateEvent::CommandComplete);
+
+                            // Send to AI for analysis
+                            if let Some(ref client) = ai_client {
+                                let messages = app.messages.clone();
+                                let client_clone = client.clone();
+                                let tx_clone = tx.clone();
+                                tokio::spawn(async move {
+                                    let response = client_clone.chat(&messages).await;
+                                    let _ = tx_clone.send(Event::ApiResponse(response));
+                                });
+                            } else {
+                                app.transition(StateEvent::AnalysisComplete);
+                            }
+                        }
+                        Err(e) => {
+                            app.add_message(Message::system(format!("❌ MCP error: {}", e)));
+                            app.transition(StateEvent::AnalysisComplete);
                         }
                     }
                 }

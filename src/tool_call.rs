@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Allowed tools
-const ALLOWED_TOOLS: &[&str] = &["run_cmd", "read_file", "write_file", "search", "run_python"];
+const ALLOWED_TOOLS: &[&str] = &["run_cmd", "read_file", "write_file", "search", "run_python", "mcp"];
 
 /// Dangerous path patterns (home dirs, system dirs)
 const DANGEROUS_PATHS: &[&str] = &[
@@ -47,6 +47,15 @@ pub struct ToolCall {
     /// For run_python: the Python code to execute
     #[serde(default)]
     pub code: String,
+    /// For mcp: the MCP server name
+    #[serde(default)]
+    pub server: String,
+    /// For mcp: the tool name on the MCP server
+    #[serde(default)]
+    pub name: String,
+    /// For mcp: the arguments to pass to the tool
+    #[serde(default)]
+    pub arguments: serde_json::Value,
 }
 
 impl ToolCall {
@@ -60,6 +69,9 @@ impl ToolCall {
             pattern: String::new(),
             directory: String::new(),
             code: String::new(),
+            server: String::new(),
+            name: String::new(),
+            arguments: serde_json::Value::Null,
         }
     }
 
@@ -76,6 +88,11 @@ impl ToolCall {
     /// Check if this is a read_file tool call
     pub fn is_read_file(&self) -> bool {
         self.tool == "read_file"
+    }
+
+    /// Check if this is an MCP tool call
+    pub fn is_mcp(&self) -> bool {
+        self.tool == "mcp"
     }
 
     /// Check if this is a write_file tool call
@@ -200,6 +217,9 @@ impl ToolCall {
                             pattern: String::new(),
                             directory: String::new(),
                             code: String::new(),
+                            server: String::new(),
+                            name: String::new(),
+                            arguments: serde_json::Value::Null,
                         });
                     }
                 }
@@ -248,7 +268,7 @@ impl ToolCall {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedResponse {
     /// AI wants to execute a command
-    ToolCall(ToolCall),
+    ToolCall(Box<ToolCall>),
     /// AI provided a text response (no tool call)
     TextResponse(String),
 }
@@ -257,7 +277,7 @@ impl ParsedResponse {
     /// Parse an AI response into either a tool call or text response
     pub fn parse(response: &str) -> Self {
         match ToolCall::parse(response) {
-            Some(tool_call) => ParsedResponse::ToolCall(tool_call),
+            Some(tool_call) => ParsedResponse::ToolCall(Box::new(tool_call)),
             None => ParsedResponse::TextResponse(response.to_string()),
         }
     }

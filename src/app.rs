@@ -8,6 +8,7 @@ use tokio::task::JoinHandle;
 use tui_textarea::TextArea;
 
 use crate::config::Config;
+use crate::mcp::McpClient;
 use crate::message::{Message, MessageRole};
 use crate::state::{AppState, StateEvent, TransitionResult, transition};
 use crate::tool_call::ToolCall;
@@ -133,6 +134,9 @@ pub struct App<'a> {
 
     /// Pending image to attach to next message
     pub pending_image: Option<(String, crate::message::ImageData)>,
+
+    /// MCP client for external tools
+    pub mcp_client: Option<McpClient>,
 }
 
 impl<'a> App<'a> {
@@ -149,6 +153,9 @@ impl<'a> App<'a> {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
+
+        // Load MCP client if configured
+        let mcp_client = McpClient::load().ok();
 
         Self {
             state: AppState::default(),
@@ -169,6 +176,7 @@ impl<'a> App<'a> {
             running_task: None,
             current_session_id: chrono::Local::now().format("%Y%m%d_%H%M%S").to_string(),
             pending_image: None,
+            mcp_client,
         }
     }
 
@@ -177,6 +185,53 @@ impl<'a> App<'a> {
         if let Some(handle) = self.running_task.take() {
             handle.abort();
         }
+    }
+
+    /// Start all configured MCP servers
+    pub fn start_mcp_servers(&self) -> Vec<String> {
+        let mut started = Vec::new();
+        if let Some(ref client) = self.mcp_client {
+            for (name, result) in client.start_all() {
+                if result.is_ok() {
+                    started.push(name);
+                }
+            }
+        }
+        started
+    }
+
+    /// Get MCP tools description for system prompt
+    pub fn get_mcp_tools_prompt(&self) -> String {
+        let Some(ref client) = self.mcp_client else {
+            return String::new();
+        };
+
+        let all_tools = match client.list_all_tools() {
+            Ok(t) => t,
+            Err(_) => return String::new(),
+        };
+
+        if all_tools.is_empty() {
+            return String::new();
+        }
+
+        let mut prompt = String::from("\n\n6. Call MCP external tools:\n   {\"tool\": \"mcp\", \"server\": \"<server>\", \"name\": \"<tool_name>\", \"arguments\": {<args>}}\n\nAvailable MCP tools:\n");
+        for (server, tools) in &all_tools {
+            for tool in tools {
+                let desc = tool.description.as_deref().unwrap_or("").lines().next().unwrap_or("");
+                let args = tool.input_schema.as_ref()
+                    .and_then(|s| s.get("properties"))
+                    .and_then(|p| p.as_object())
+                    .map(|props| props.keys().cloned().collect::<Vec<_>>().join(", "))
+                    .unwrap_or_default();
+                prompt.push_str(&format!(
+                    "- {}/{}: {}\n  Args: {}\n  Example: {{\"tool\": \"mcp\", \"server\": \"{}\", \"name\": \"{}\", \"arguments\": {{{}}}}}\n",
+                    server, tool.name, desc, args, server, tool.name,
+                    if args.is_empty() { "".to_string() } else { format!("\"{}\": \"...\"", args.split(", ").next().unwrap_or("")) }
+                ));
+            }
+        }
+        prompt
     }
 
     /// Get the current input text (trimmed)
@@ -365,6 +420,15 @@ impl<'a> App<'a> {
 
         let input = self.get_input_text();
 
+        // Check for shell escape (!) - run command directly without AI
+        if input.starts_with('!') && self.pending_image.is_none() {
+            let cmd = input[1..].trim();
+            if !cmd.is_empty() {
+                self.clear_input();
+                return self.execute_shell_escape(cmd);
+            }
+        }
+
         // Check for slash commands (but not if we have pending image)
         if input.starts_with('/') && self.pending_image.is_none() {
             self.clear_input();
@@ -396,6 +460,32 @@ impl<'a> App<'a> {
         SubmitResult::Query
     }
 
+    /// Execute shell escape command (!) directly without AI
+    fn execute_shell_escape(&mut self, cmd: &str) -> SubmitResult {
+        use crate::executor::CommandExecutor;
+        
+        // Block commands that break TUI
+        let base_cmd = cmd.split_whitespace().next().unwrap_or("");
+        if matches!(base_cmd, "clear" | "reset" | "tput") {
+            self.add_message(Message::system(format!("⚠ '{}' blocked (breaks TUI). Use /clear instead.", base_cmd)));
+            return SubmitResult::Handled;
+        }
+        
+        self.add_message(Message::system(format!("$ {}", cmd)));
+        let executor = CommandExecutor::new(&self.config);
+        let result = executor.execute(cmd);
+        let output = if !result.stdout.is_empty() {
+            result.stdout
+        } else if !result.stderr.is_empty() {
+            result.stderr
+        } else {
+            "(no output)".to_string()
+        };
+        let status = if result.success { "✓" } else { "✗" };
+        self.add_message(Message::system(format!("{} {}", status, output.trim())));
+        SubmitResult::Handled
+    }
+
     /// Handle slash commands
     fn handle_slash_command(&mut self, input: &str) -> SubmitResult {
         let parts: Vec<&str> = input.trim().splitn(2, ' ').collect();
@@ -423,7 +513,9 @@ impl<'a> App<'a> {
                      /export [file.md] - Export chat to markdown\n\
                      /clear - Clear chat history\n\
                      /help - Show this help\n\
-                     /quit - Exit application",
+                     /quit - Exit application\n\n\
+                     Shell escape:\n\
+                     !<command> - Run shell command directly (no AI)",
                 ));
                 SubmitResult::Handled
             }
